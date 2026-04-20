@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import types
@@ -7,8 +8,14 @@ from pathlib import Path
 import numpy as np
 import numpy.testing as npt
 
-SCRIPT_PATH = Path(__file__).with_name("track2p_pyrecest_bridge.py")
-sys.path.insert(0, str(SCRIPT_PATH.parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_PATH = PROJECT_ROOT / "src"
+sys.path.insert(0, str(SRC_PATH))
+MODULE_RUN_ENV = {
+    **os.environ,
+    "PYTHONPATH": str(SRC_PATH)
+    + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""),
+}
 
 from track2p_pyrecest_bridge import (  # noqa: E402
     CalciumPlaneData,
@@ -293,8 +300,9 @@ def test_cli_summary_and_export(tmp_path):
     np.save(plane_dir / "fov.npy", np.ones((2, 2), dtype=float))
 
     summary_proc = subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), "summary", str(subject_dir)],
+        [sys.executable, "-m", "track2p_pyrecest_bridge", "summary", str(subject_dir)],
         check=True,
+        env=MODULE_RUN_ENV,
         capture_output=True,
         text=True,
     )
@@ -304,8 +312,9 @@ def test_cli_summary_and_export(tmp_path):
 
     output_path = tmp_path / "jm123_plane0.npz"
     export_proc = subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), "export", str(subject_dir), str(output_path)],
+        [sys.executable, "-m", "track2p_pyrecest_bridge", "export", str(subject_dir), str(output_path)],
         check=True,
+        env=MODULE_RUN_ENV,
         capture_output=True,
         text=True,
     )

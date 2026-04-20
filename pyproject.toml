@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "track2p-pyrecest-bridge"
 version = "0.0.1"
 description = "Track2p / Suite2p bridge for PyRecEst"
-readme = "README_track2p_pyrecest_bridge.md"
+readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "numpy",
@@ -20,10 +20,12 @@ track2p-pyrecest-bridge = "track2p_pyrecest_bridge:main"
 Repository = "https://github.com/FlorianPfaff/track2p_pyrecest_bridge"
 
 [tool.setuptools]
-py-modules = ["track2p_pyrecest_bridge"]
-
+package-dir = {"" = "src"}
 [tool.poetry]
 requires-poetry = ">=2.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8"
+
+[tool.setuptools.packages.find]
+where = ["src"]
