@@ -12,6 +12,8 @@ sys.path.insert(0, str(SCRIPT_PATH.parent))
 
 from track2p_pyrecest_bridge import (  # noqa: E402
     CalciumPlaneData,
+    build_consecutive_session_association_bundles,
+    build_session_pair_association_bundle,
     find_track2p_session_dirs,
     load_raw_npy_plane,
     load_suite2p_plane,
@@ -199,6 +201,85 @@ def test_find_and_load_track2p_subject_sorts_sessions_and_loads_behavior(tmp_pat
     assert sessions[1].motion_energy is None
     npt.assert_allclose(sessions[0].plane_data.traces, np.array([[0.0, 1.0, 2.0]]))
     npt.assert_allclose(sessions[1].plane_data.traces, np.array([[10.0, 11.0, 12.0]]))
+
+
+def test_registered_pairwise_costs_and_association_bundles(tmp_path):
+    subject_dir = tmp_path / "jm314"
+    image_shape = (4, 6)
+
+    ref_masks = np.zeros((2, *image_shape), dtype=bool)
+    ref_masks[0, 0:2, 0:2] = True
+    ref_masks[1, 1:3, 3:5] = True
+
+    mov_masks_raw = np.zeros_like(ref_masks)
+    mov_masks_raw[0, 0:2, 1:3] = True
+    mov_masks_raw[1, 1:3, 4:6] = True
+
+    mov_masks_registered = np.zeros_like(ref_masks)
+    mov_masks_registered[0, 0:2, 0:2] = True
+    mov_masks_registered[1, 1:3, 3:5] = True
+
+    for session_name, roi_masks, offset in (
+        ("2024-05-01_a", ref_masks, 0.0),
+        ("2024-05-02_a", mov_masks_raw, 10.0),
+    ):
+        plane_dir = subject_dir / session_name / "data_npy" / "plane0"
+        plane_dir.mkdir(parents=True)
+        np.save(plane_dir / "rois.npy", roi_masks)
+        np.save(plane_dir / "F.npy", np.array([[offset, offset + 1], [offset + 2, offset + 3]], dtype=float))
+        np.save(plane_dir / "fov.npy", np.ones(image_shape, dtype=float) * offset)
+
+    sessions = load_track2p_subject(subject_dir, plane_name="plane0", input_format="auto")
+    assert len(sessions) == 2
+
+    registered_measurement_plane = sessions[1].plane_data.with_replaced_masks(
+        mov_masks_registered,
+        source="registered_npy",
+    )
+    npt.assert_array_equal(
+        registered_measurement_plane.roi_indices,
+        sessions[1].plane_data.roi_indices,
+    )
+
+    pairwise_cost_matrix, components = sessions[0].plane_data.build_pairwise_cost_matrix(
+        registered_measurement_plane,
+        max_centroid_distance=5.0,
+        roi_feature_weight=0.0,
+        return_components=True,
+    )
+    assert pairwise_cost_matrix.shape == (2, 2)
+    assert pairwise_cost_matrix[0, 0] < pairwise_cost_matrix[0, 1]
+    assert pairwise_cost_matrix[1, 1] < pairwise_cost_matrix[1, 0]
+    npt.assert_allclose(np.diag(components["iou"]), np.ones(2))
+    assert np.all(np.diag(components["mask_cosine_similarity"]) > 0.99)
+
+    bundle = build_session_pair_association_bundle(
+        sessions[0],
+        sessions[1],
+        measurement_plane_in_reference_frame=registered_measurement_plane,
+        pairwise_cost_kwargs={"max_centroid_distance": 5.0, "roi_feature_weight": 0.0},
+    )
+    npt.assert_allclose(
+        bundle.measurement_matrix,
+        np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]]),
+    )
+    npt.assert_allclose(
+        bundle.measurements,
+        registered_measurement_plane.to_measurement_matrix(order="xy"),
+    )
+    npt.assert_allclose(bundle.pairwise_cost_matrix, pairwise_cost_matrix)
+    npt.assert_array_equal(bundle.reference_roi_indices, np.array([0, 1]))
+    npt.assert_array_equal(bundle.measurement_roi_indices, np.array([0, 1]))
+    update_kwargs = bundle.to_pyrecest_update_kwargs()
+    assert set(update_kwargs) == {"measurements", "measurement_matrix", "covMatsMeas", "pairwise_cost_matrix"}
+
+    sequential_bundles = build_consecutive_session_association_bundles(
+        sessions,
+        measurement_planes_in_reference_frames=[registered_measurement_plane],
+        pairwise_cost_kwargs={"max_centroid_distance": 5.0, "roi_feature_weight": 0.0},
+    )
+    assert len(sequential_bundles) == 1
+    npt.assert_allclose(sequential_bundles[0].pairwise_cost_matrix, pairwise_cost_matrix)
 
 
 def test_cli_summary_and_export(tmp_path):
