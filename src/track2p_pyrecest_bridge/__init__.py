@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """Standalone Track2p/Suite2p bridge for PyRecEst.
 
-This script is intentionally external to the PyRecEst package. It focuses on the
+This package provides a Track2p/Suite2p bridge for PyRecEst. It focuses on the
 calcium-imaging formats used by Track2p and turns them into PyRecEst-friendly state
 representations without adding neuroscience-specific code to PyRecEst itself.
 
@@ -14,11 +13,11 @@ Typical usage
 -------------
 Inspect a subject directory::
 
-    python track2p_pyrecest_bridge.py summary /path/to/jm039 --plane plane0
+    python -m track2p_pyrecest_bridge summary /path/to/jm039 --plane plane0
 
 Export per-session measurements and state moments::
 
-    python track2p_pyrecest_bridge.py export /path/to/jm039 /tmp/jm039_plane0.npz
+    python -m track2p_pyrecest_bridge export /path/to/jm039 /tmp/jm039_plane0.npz
 
 Use from Python::
 

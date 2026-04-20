@@ -26,13 +26,13 @@ Track2p benchmark and related multi-session calcium-imaging datasets that store 
 Inspect one subject:
 
 ```bash
-python track2p_pyrecest_bridge.py summary /path/to/jm039 --plane plane0
+python -m track2p_pyrecest_bridge summary /path/to/jm039 --plane plane0
 ```
 
 Export PyRecEst-ready states:
 
 ```bash
-python track2p_pyrecest_bridge.py export /path/to/jm039 /tmp/jm039_plane0.npz \
+python -m track2p_pyrecest_bridge export /path/to/jm039 /tmp/jm039_plane0.npz \
   --plane plane0 \
   --input-format auto \
   --weighted-masks \
@@ -43,7 +43,7 @@ python track2p_pyrecest_bridge.py export /path/to/jm039 /tmp/jm039_plane0.npz \
 Validate that PyRecEst objects can be instantiated during export:
 
 ```bash
-python track2p_pyrecest_bridge.py export /path/to/jm039 /tmp/jm039_plane0.npz \
+python -m track2p_pyrecest_bridge export /path/to/jm039 /tmp/jm039_plane0.npz \
   --validate-pyrecest
 ```
 
