@@ -15,6 +15,8 @@ on:
       - "README_track2p_pyrecest_bridge.md"
       - ".github/workflows/bridge-ci.yml"
   pull_request:
+    branches:
+      - main
     paths:
       - "src/track2p_pyrecest_bridge/**"
       - "tests/**"
@@ -40,6 +42,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     env:
       PYTHONPATH: ${{ github.workspace }}/src
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -48,6 +51,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
       - name: Install test dependencies
         run: |
@@ -56,7 +60,9 @@ jobs:
 
       - name: Run test suite
         run: |
-          pytest -q tests
+          mkdir -p test-results
+          pytest -q --strict-config tests \
+            --junitxml=test-results/junit-py${{ matrix.python-version }}.xml
 
       - name: Create synthetic Track2p-style subject
         run: |
@@ -82,7 +88,10 @@ jobs:
 
       - name: Run export command
         run: |
-          python -m track2p_pyrecest_bridge export ci_smoke/jm123 ci_smoke/jm123_plane0.npz --plane plane0 > export-summary.json
+          python -m track2p_pyrecest_bridge export \
+            ci_smoke/jm123 \
+            ci_smoke/jm123_plane0.npz \
+            --plane plane0 > export-summary.json
           cat export-summary.json
 
       - name: Validate exported archive
@@ -114,19 +123,30 @@ jobs:
           print("Archive keys:", sorted(exported.files))
           PY
 
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-py${{ matrix.python-version }}
+          path: test-results/junit-py${{ matrix.python-version }}.xml
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload smoke-test artifact
         if: matrix.python-version == '3.11'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bridge-smoke-export
           path: |
             ci_smoke/jm123_plane0.npz
             summary.json
             export-summary.json
+          retention-days: 14
 
   package-smoke:
     name: Build package and run module entry point
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -135,6 +155,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Build wheel and sdist
         run: |
@@ -151,7 +172,32 @@ jobs:
           python -m track2p_pyrecest_bridge --help > /dev/null
 
       - name: Upload package artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bridge-package-dist
           path: dist/*
+          retention-days: 14
+
+  publish-results:
+    name: Publish unit test results
+    needs:
+      - tests-and-export
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      pull-requests: write
+
+    steps:
+      - name: Download JUnit artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: test-results
+          pattern: junit-py*
+          merge-multiple: true
+
+      - name: Publish test results
+        if: (!cancelled())
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: test-results/*.xml
