@@ -11,15 +11,18 @@ Track2p benchmark and related multi-session calcium-imaging datasets that store 
 - Loads Track2p-style subject/session directories.
 - Reconstructs Suite2p ROI masks from `stat.npy`.
 - Computes ROI centroids and spatial covariance matrices.
-- Builds constant-velocity state moments that can initialize PyRecEst filters.
+- Builds ROI-aware pairwise association costs and standard `SessionAssociationBundle` objects.
+- Includes a first-party registration module for bringing later sessions into the earlier session's coordinate frame before association.
 - Lazily creates PyRecEst `GaussianDistribution` and `KalmanFilter` objects when PyRecEst is installed.
 - Exports per-session measurements and state moments to a single `.npz` archive.
 - Includes a CLI for quick inspection.
 
 ## Files
 
-- `track2p_pyrecest_bridge.py` — standalone script and importable module.
-- `test_track2p_pyrecest_bridge.py` — synthetic tests.
+- `src/track2p_pyrecest_bridge/__init__.py` - core bridge and CLI.
+- `src/track2p_pyrecest_bridge/registration.py` - registration-aware longitudinal tracking helpers.
+- `tests/test_track2p_pyrecest_bridge.py` - synthetic bridge tests.
+- `tests/test_registration.py` - synthetic registration tests.
 
 ## CLI examples
 
@@ -68,10 +71,31 @@ filters = first_session.to_pyrecest_kalman_filters(
 )
 ```
 
+## Registration example
+
+```python
+from track2p_pyrecest_bridge import load_track2p_subject
+from track2p_pyrecest_bridge.registration import (
+    build_registered_session_pair_association_bundle,
+)
+
+sessions = load_track2p_subject("/path/to/jm039", plane_name="plane0")
+registered = build_registered_session_pair_association_bundle(
+    sessions[0],
+    sessions[1],
+    registration_model="affine",
+    pairwise_cost_kwargs={
+        "max_centroid_distance": 25.0,
+        "roi_feature_weight": 0.25,
+    },
+)
+
+pairwise_cost_matrix = registered.association_bundle.pairwise_cost_matrix
+registered_plane = registered.plane_registration.registered_measurement_plane
+```
+
 ## Notes
 
 - The state layout is `[pos_1, vel_1, pos_2, vel_2]`.
-- The script intentionally stops at representation/export and does not add Track2p-specific
-  benchmark logic into the PyRecEst core package.
-- `--validate-pyrecest` is useful when you want the export step to fail early if the current
-  environment cannot instantiate the expected PyRecEst classes.
+- The package keeps Track2p-specific logic out of the PyRecEst core package while still shipping registration as first-party bridge functionality.
+- `--validate-pyrecest` is useful when you want the export step to fail early if the current environment cannot instantiate the expected PyRecEst classes.
