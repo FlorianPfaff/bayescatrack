@@ -36,6 +36,7 @@ from track2p_pyrecest_bridge import (
     CalciumPlaneData,
     SessionAssociationBundle,
     Track2pSession,
+    _suite2p_kwargs_from_args,
     build_session_pair_association_bundle,
     load_track2p_subject,
 )
@@ -227,28 +228,28 @@ def _call_multisession_solver(
 ) -> Any:
     """Call the solver while tolerating small API drift across PR revisions."""
 
-    attempts = [
-        dict(
-            session_sizes=list(session_sizes),
-            start_cost=config.start_cost,
-            end_cost=config.end_cost,
-            gap_penalty=config.gap_penalty,
-            cost_threshold=config.cost_threshold,
-        ),
-        dict(
-            session_sizes=list(session_sizes),
-            birth_cost=config.start_cost,
-            death_cost=config.end_cost,
-            gap_cost=config.gap_penalty,
-            cost_threshold=config.cost_threshold,
-        ),
-        dict(
-            session_sizes=list(session_sizes),
-            start_cost=config.start_cost,
-            end_cost=config.end_cost,
-            gap_penalty=config.gap_penalty,
-        ),
-        dict(session_sizes=list(session_sizes)),
+    attempts: list[dict[str, Any]] = [
+        {
+            "session_sizes": list(session_sizes),
+            "start_cost": config.start_cost,
+            "end_cost": config.end_cost,
+            "gap_penalty": config.gap_penalty,
+            "cost_threshold": config.cost_threshold,
+        },
+        {
+            "session_sizes": list(session_sizes),
+            "birth_cost": config.start_cost,
+            "death_cost": config.end_cost,
+            "gap_cost": config.gap_penalty,
+            "cost_threshold": config.cost_threshold,
+        },
+        {
+            "session_sizes": list(session_sizes),
+            "start_cost": config.start_cost,
+            "end_cost": config.end_cost,
+            "gap_penalty": config.gap_penalty,
+        },
+        {"session_sizes": list(session_sizes)},
         {},
     ]
 
@@ -397,6 +398,22 @@ def track_sessions_multisession(
     )
 
 
+def _subject_load_kwargs(
+    *,
+    plane_name: str,
+    input_format: str,
+    include_behavior: bool,
+    suite2p_kwargs: Mapping[str, Any],
+) -> dict[str, Any]:
+    load_kwargs: dict[str, Any] = {
+        "plane_name": plane_name,
+        "input_format": input_format,
+        "include_behavior": include_behavior,
+    }
+    load_kwargs.update(suite2p_kwargs)
+    return load_kwargs
+
+
 def track_subject_multisession(
     subject_dir: str | Path,
     *,
@@ -413,10 +430,12 @@ def track_subject_multisession(
 ) -> LongitudinalTrackingResult:
     sessions = load_track2p_subject(
         subject_dir,
-        plane_name=plane_name,
-        input_format=input_format,
-        include_behavior=include_behavior,
-        **suite2p_kwargs,
+        **_subject_load_kwargs(
+            plane_name=plane_name,
+            input_format=input_format,
+            include_behavior=include_behavior,
+            suite2p_kwargs=suite2p_kwargs,
+        ),
     )
     return track_sessions_multisession(
         sessions,
@@ -556,15 +575,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     return parser
-
-
-def _suite2p_kwargs_from_args(args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "include_non_cells": args.include_non_cells,
-        "cell_probability_threshold": args.cell_probability_threshold,
-        "weighted_masks": args.weighted_masks,
-        "exclude_overlapping_pixels": args.exclude_overlapping_pixels,
-    }
 
 
 def _load_pairwise_cost_kwargs(args: argparse.Namespace) -> dict[str, Any] | None:
