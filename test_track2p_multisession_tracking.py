@@ -1,4 +1,4 @@
-import subprocess
+import subprocess  # nosec B404
 import sys
 import types
 from datetime import date
@@ -192,7 +192,7 @@ def test_cli_runs_on_single_session(tmp_path):
     np.save(plane_dir / "fov.npy", np.ones((3, 3), dtype=float))
 
     output_path = tmp_path / "tracks.npz"
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603
         [
             sys.executable,
             str(SCRIPT_PATH),
