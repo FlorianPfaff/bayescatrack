@@ -1,41 +1,51 @@
-# Track2p / Suite2p bridge for PyRecEst
+# BayesCaTrack
 
-This utility is aimed at the
-Track2p benchmark and related multi-session calcium-imaging datasets that store either:
+BayesCaTrack is a recursive Bayesian cell tracking toolkit for Track2p-style and related calcium-imaging datasets. It currently focuses on Track2p / Suite2p data ingestion, ROI representation, registration-aware association costs, Track2p reference evaluation, and PyRecEst-ready exports.
 
-- `suite2p/planeX` folders, or
-- `data_npy/planeX` folders in the Track2p raw-NumPy convention.
+## Package layout
+
+The public package now follows this layout:
+
+```text
+bayescatrack/
+  src/
+    bayescatrack/
+      core/
+      association/
+      datasets/
+        track2p/
+      io/
+        suite2p.py
+        track2p.py
+  tests/
+```
+
+During this transition the original `track2p_pyrecest_bridge` implementation remains in the repository as a compatibility backend behind the new `bayescatrack` namespace.
 
 ## What it gives you
 
 - Loads Track2p-style subject/session directories.
 - Reconstructs Suite2p ROI masks from `stat.npy`.
 - Computes ROI centroids and spatial covariance matrices.
+- Builds constant-velocity state moments that can initialize PyRecEst filters.
 - Builds ROI-aware pairwise association costs and standard `SessionAssociationBundle` objects.
-- Includes a first-party registration module for bringing later sessions into the earlier session's coordinate frame before association.
-- Lazily creates PyRecEst `GaussianDistribution` and `KalmanFilter` objects when PyRecEst is installed.
+- Registers later-session ROIs into an earlier session's coordinate frame before association.
+- Loads Track2p reference identities and scores pairwise association predictions.
 - Exports per-session measurements and state moments to a single `.npz` archive.
 - Includes a CLI for quick inspection.
-
-## Files
-
-- `src/track2p_pyrecest_bridge/__init__.py` - core bridge and CLI.
-- `src/track2p_pyrecest_bridge/registration.py` - registration-aware longitudinal tracking helpers.
-- `tests/test_track2p_pyrecest_bridge.py` - synthetic bridge tests.
-- `tests/test_registration.py` - synthetic registration tests.
 
 ## CLI examples
 
 Inspect one subject:
 
 ```bash
-python -m track2p_pyrecest_bridge summary /path/to/jm039 --plane plane0
+python -m bayescatrack summary /path/to/jm039 --plane plane0
 ```
 
 Export PyRecEst-ready states:
 
 ```bash
-python -m track2p_pyrecest_bridge export /path/to/jm039 /tmp/jm039_plane0.npz \
+python -m bayescatrack export /path/to/jm039 /tmp/jm039_plane0.npz \
   --plane plane0 \
   --input-format auto \
   --weighted-masks \
@@ -46,14 +56,14 @@ python -m track2p_pyrecest_bridge export /path/to/jm039 /tmp/jm039_plane0.npz \
 Validate that PyRecEst objects can be instantiated during export:
 
 ```bash
-python -m track2p_pyrecest_bridge export /path/to/jm039 /tmp/jm039_plane0.npz \
+python -m bayescatrack export /path/to/jm039 /tmp/jm039_plane0.npz \
   --validate-pyrecest
 ```
 
 ## Python example
 
 ```python
-from track2p_pyrecest_bridge import load_track2p_subject
+from bayescatrack import load_track2p_subject
 
 sessions = load_track2p_subject("/path/to/jm039", plane_name="plane0", input_format="auto")
 first_session = sessions[0].plane_data
@@ -74,10 +84,8 @@ filters = first_session.to_pyrecest_kalman_filters(
 ## Registration example
 
 ```python
-from track2p_pyrecest_bridge import load_track2p_subject
-from track2p_pyrecest_bridge.registration import (
-    build_registered_session_pair_association_bundle,
-)
+from bayescatrack import load_track2p_subject
+from bayescatrack.registration import build_registered_session_pair_association_bundle
 
 sessions = load_track2p_subject("/path/to/jm039", plane_name="plane0")
 registered = build_registered_session_pair_association_bundle(
@@ -94,8 +102,18 @@ pairwise_cost_matrix = registered.association_bundle.pairwise_cost_matrix
 registered_plane = registered.plane_registration.registered_measurement_plane
 ```
 
+## Reference example
+
+```python
+from bayescatrack.reference import load_track2p_reference, score_pairwise_matches
+
+reference = load_track2p_reference("/path/to/jm039/track2p", plane_name="plane0")
+reference_pairs = reference.pairwise_matches(0, 1, curated_only=True)
+scores = score_pairwise_matches(predicted_pairs, reference_pairs)
+```
+
 ## Notes
 
 - The state layout is `[pos_1, vel_1, pos_2, vel_2]`.
-- The package keeps Track2p-specific logic out of the PyRecEst core package while still shipping registration as first-party bridge functionality.
+- The current package transition keeps the original bridge implementation importable while the BayesCaTrack layout is established.
 - `--validate-pyrecest` is useful when you want the export step to fail early if the current environment cannot instantiate the expected PyRecEst classes.
