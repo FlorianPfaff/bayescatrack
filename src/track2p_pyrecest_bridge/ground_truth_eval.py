@@ -132,7 +132,9 @@ def _normalize_header(header: str) -> str:
     return header.strip().lower().replace(" ", "_")
 
 
-def _parse_roi_value(value: str | int | float | None) -> int:
+def _parse_roi_value(
+    value: str | int | float | None,
+) -> int:  # pylint: disable=too-many-return-statements
     if value is None:
         return -1
     if isinstance(value, (int, np.integer)):
@@ -184,7 +186,7 @@ def _find_matching_header(headers: Sequence[str], candidates: set[str]) -> str |
     return None
 
 
-def _load_long_format(
+def _load_long_format(  # pylint: disable=too-many-locals
     headers: Sequence[str],
     rows: Sequence[Mapping[str, str]],
     session_names: Sequence[str] | None,
