@@ -1,3 +1,4 @@
+# jscpd:ignore-start
 import sys
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import numpy.testing as npt
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_PATH))
+# jscpd:ignore-end
 
 from track2p_pyrecest_bridge import CalciumPlaneData, load_track2p_subject  # noqa: E402
 from track2p_pyrecest_bridge.track2p_registration import (  # noqa: E402
