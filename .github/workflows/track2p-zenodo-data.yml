@@ -1,0 +1,261 @@
+name: Track2p Zenodo data smoke test
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/track2p-zenodo-data.yml"
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+  workflow_dispatch:
+    inputs:
+      force_download:
+        description: "Ignore a restored cache entry and download data.zip from Zenodo again."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZENODO_DATA_URL: "https://zenodo.org/records/17091226/files/data.zip?download=1"
+  ZENODO_DATA_MD5: "8d12ff6b93a26e28609c5a20b11f3d88"
+  ZENODO_CACHE_KEY: "track2p-zenodo-17091226-data-md5-8d12ff6b93a26e28609c5a20b11f3d88"
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: "30"
+
+jobs:
+  zenodo-smoke:
+    name: Download cached Zenodo data and run real-data smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Show runner disk before data restore
+        run: df -h "$GITHUB_WORKSPACE"
+
+      - name: Restore cached Zenodo archive
+        id: restore-zenodo
+        uses: actions/cache/restore@v4
+        with:
+          path: data-cache/data.zip
+          key: ${{ env.ZENODO_CACHE_KEY }}
+
+      - name: Force a fresh Zenodo download when requested
+        if: github.event_name == 'workflow_dispatch' && inputs.force_download == true
+        run: rm -f data-cache/data.zip
+
+      - name: Download Zenodo archive on cache miss
+        if: steps.restore-zenodo.outputs.cache-hit != 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_download == true)
+        run: |
+          mkdir -p data-cache
+          curl \
+            --fail \
+            --location \
+            --show-error \
+            --retry 5 \
+            --retry-delay 30 \
+            --retry-all-errors \
+            --output data-cache/data.zip \
+            "$ZENODO_DATA_URL"
+
+      - name: Verify Zenodo archive checksum
+        run: |
+          echo "${ZENODO_DATA_MD5}  data-cache/data.zip" | md5sum --check -
+          du -h data-cache/data.zip
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Save Zenodo archive to cache
+        if: steps.restore-zenodo.outputs.cache-hit != 'true' && hashFiles('data-cache/data.zip') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: data-cache/data.zip
+          key: ${{ env.ZENODO_CACHE_KEY }}
+
+      - name: Install smoke-test runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<3"
+
+      - name: Select package module
+        id: package-module
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          from pathlib import Path
+
+          if Path("src/bayescatrack/__main__.py").exists():
+              module = "bayescatrack"
+          else:
+              module = "track2p_pyrecest_bridge"
+
+          print(f"module={module}")
+          PY
+
+      - name: Extract a two-session real-data subset
+        id: extract-subset
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import shutil
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          archive_path = Path("data-cache/data.zip")
+          subset_dir = Path("real-data-subset")
+          required_files = {"F.npy", "iscell.npy", "ops.npy", "stat.npy"}
+          optional_files = {"Fneu.npy", "spks.npy"}
+          wanted_files = required_files | optional_files
+          subject_pattern = re.compile(r"jm\d+")
+          session_pattern = re.compile(r"\d{4}-\d{2}-\d{2}(?:_.+)?")
+
+          if subset_dir.exists():
+              shutil.rmtree(subset_dir)
+          subset_dir.mkdir(parents=True)
+
+          entries = {}
+          with zipfile.ZipFile(archive_path) as archive:
+              for name in archive.namelist():
+                  if name.endswith("/"):
+                      continue
+                  parts = PurePosixPath(name).parts
+                  for index in range(0, max(0, len(parts) - 4)):
+                      if not subject_pattern.fullmatch(parts[index]):
+                          continue
+                      if not session_pattern.fullmatch(parts[index + 1]):
+                          continue
+                      if parts[index + 2:index + 4] != ("suite2p", "plane0"):
+                          continue
+                      filename = parts[index + 4]
+                      if filename not in wanted_files:
+                          break
+                      subject = parts[index]
+                      session = parts[index + 1]
+                      relative_parts = parts[index: index + 5]
+                      entries.setdefault((subject, session), {})[filename] = (name, relative_parts)
+                      break
+
+              sessions_by_subject = {}
+              for (subject, session), files in entries.items():
+                  if required_files.issubset(files):
+                      sessions_by_subject.setdefault(subject, []).append(session)
+
+              selected_subject = None
+              selected_sessions = None
+              for subject in sorted(sessions_by_subject):
+                  sessions = sorted(set(sessions_by_subject[subject]))
+                  if len(sessions) >= 2:
+                      selected_subject = subject
+                      selected_sessions = sessions[:2]
+                      break
+
+              if selected_subject is None or selected_sessions is None:
+                  raise RuntimeError("Could not find a subject with at least two complete suite2p/plane0 sessions")
+
+              for session in selected_sessions:
+                  for filename, (name, relative_parts) in sorted(entries[(selected_subject, session)].items()):
+                      destination = subset_dir.joinpath(*relative_parts)
+                      destination.parent.mkdir(parents=True, exist_ok=True)
+                      with archive.open(name) as source, destination.open("wb") as target:
+                          shutil.copyfileobj(source, target)
+
+          subject_path = subset_dir / selected_subject
+          print(f"Extracted {selected_subject}: {', '.join(selected_sessions)}")
+          print(f"Subset path: {subject_path}")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"subject_path={subject_path.as_posix()}", file=output)
+              print(f"subject_id={selected_subject}", file=output)
+              print(f"sessions={','.join(selected_sessions)}", file=output)
+          PY
+
+      - name: Run real-data summary smoke test
+        env:
+          PYTHONPATH: src
+          MODULE_NAME: ${{ steps.package-module.outputs.module }}
+          SUBJECT_PATH: ${{ steps.extract-subset.outputs.subject_path }}
+        run: |
+          python -m "$MODULE_NAME" \
+            summary "$SUBJECT_PATH" \
+            --plane plane0 \
+            --input-format suite2p \
+            --no-include-behavior \
+            > real-data-summary.json
+          cat real-data-summary.json
+
+      - name: Run real-data export smoke test
+        env:
+          PYTHONPATH: src
+          MODULE_NAME: ${{ steps.package-module.outputs.module }}
+          SUBJECT_PATH: ${{ steps.extract-subset.outputs.subject_path }}
+        run: |
+          python -m "$MODULE_NAME" \
+            export "$SUBJECT_PATH" real-data-export.npz \
+            --plane plane0 \
+            --input-format suite2p \
+            --no-include-behavior \
+            > real-data-export-summary.json
+          cat real-data-export-summary.json
+
+      - name: Validate real-data smoke outputs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import numpy as np
+
+          summary = json.loads(Path("real-data-summary.json").read_text(encoding="utf-8"))
+          export_summary = json.loads(Path("real-data-export-summary.json").read_text(encoding="utf-8"))
+
+          assert summary["n_sessions"] == 2, summary
+          assert export_summary["n_sessions"] == 2, export_summary
+
+          roi_counts = []
+          for session in summary["sessions"]:
+              assert session["source"] == "suite2p", session
+              assert session["n_rois"] > 0, session
+              assert session["trace_shape"] is not None, session
+              assert session["trace_shape"][0] == session["n_rois"], session
+              roi_counts.append(session["n_rois"])
+
+          exported = np.load("real-data-export.npz", allow_pickle=True)
+          for index, n_rois in enumerate(roi_counts):
+              measurements = exported[f"session_{index}__measurements"]
+              state_means = exported[f"session_{index}__state_means"]
+              state_covariances = exported[f"session_{index}__state_covariances"]
+              assert measurements.shape == (2, n_rois), measurements.shape
+              assert state_means.shape == (4, n_rois), state_means.shape
+              assert state_covariances.shape == (4, 4, n_rois), state_covariances.shape
+              traces_key = f"session_{index}__traces"
+              assert traces_key in exported.files, exported.files
+              assert exported[traces_key].shape[0] == n_rois, exported[traces_key].shape
+
+          print(
+              json.dumps(
+                  {
+                      "subject_dir": summary["subject_dir"],
+                      "sessions": [session["session_name"] for session in summary["sessions"]],
+                      "roi_counts": roi_counts,
+                      "archive_keys": sorted(exported.files),
+                  },
+                  indent=2,
+              )
+          )
+          PY
+
+      - name: Show runner disk after smoke test
+        if: always()
+        run: df -h "$GITHUB_WORKSPACE"
