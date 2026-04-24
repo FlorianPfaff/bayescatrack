@@ -1,22 +1,11 @@
 import json
-import os
-import subprocess  # nosec B404
 import sys
 import types
-from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SRC_PATH = PROJECT_ROOT / "src"
-sys.path.insert(0, str(SRC_PATH))
-MODULE_RUN_ENV = {
-    **os.environ,
-    "PYTHONPATH": str(SRC_PATH)
-    + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""),
-}
-
+from tests._support import run_module
 from track2p_pyrecest_bridge import (  # noqa: E402
     CalciumPlaneData,
     build_consecutive_session_association_bundles,
@@ -287,25 +276,13 @@ def test_cli_summary_and_export(tmp_path):
     np.save(plane_dir / "F.npy", np.array([[1.0, 2.0, 3.0]], dtype=float))
     np.save(plane_dir / "fov.npy", np.ones((2, 2), dtype=float))
 
-    summary_proc = subprocess.run(  # nosec B603
-        [sys.executable, "-m", "track2p_pyrecest_bridge", "summary", str(subject_dir)],
-        check=True,
-        env=MODULE_RUN_ENV,
-        capture_output=True,
-        text=True,
-    )
+    summary_proc = run_module("-m", "track2p_pyrecest_bridge", "summary", str(subject_dir))
     summary = json.loads(summary_proc.stdout)
     assert summary["n_sessions"] == 1
     assert summary["sessions"][0]["n_rois"] == 1
 
     output_path = tmp_path / "jm123_plane0.npz"
-    export_proc = subprocess.run(  # nosec B603
-        [sys.executable, "-m", "track2p_pyrecest_bridge", "export", str(subject_dir), str(output_path)],
-        check=True,
-        env=MODULE_RUN_ENV,
-        capture_output=True,
-        text=True,
-    )
+    export_proc = run_module("-m", "track2p_pyrecest_bridge", "export", str(subject_dir), str(output_path))
     export_summary = json.loads(export_proc.stdout)
     assert export_summary["n_sessions"] == 1
     assert output_path.exists()
