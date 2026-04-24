@@ -10,11 +10,6 @@ on:
       - "tests/**"
       - "pyproject.toml"
   workflow_dispatch:
-    inputs:
-      force_download:
-        description: "Ignore a restored cache entry and download data.zip from Zenodo again."
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -54,12 +49,8 @@ jobs:
           path: data-cache/data.zip
           key: ${{ env.ZENODO_CACHE_KEY }}
 
-      - name: Force a fresh Zenodo download when requested
-        if: github.event_name == 'workflow_dispatch' && inputs.force_download == true
-        run: rm -f data-cache/data.zip
-
       - name: Download Zenodo archive on cache miss
-        if: steps.restore-zenodo.outputs.cache-hit != 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_download == true)
+        if: steps.restore-zenodo.outputs.cache-hit != 'true'
         run: |
           mkdir -p data-cache
           curl \
