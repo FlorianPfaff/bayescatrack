@@ -1,6 +1,6 @@
 # BayesCaTrack
 
-BayesCaTrack is a recursive Bayesian cell tracking toolkit for Track2p-style and related calcium-imaging datasets. It focuses on Track2p / Suite2p data ingestion, ROI representation, registration-aware association costs, Track2p reference evaluation, and PyRecEst-ready exports.
+BayesCaTrack is a recursive Bayesian cell tracking toolkit for Track2p-style and related calcium-imaging datasets. It focuses on Track2p / Suite2p data ingestion, ROI representation, registration-aware association costs, Track2p reference evaluation, PyRecEst-ready exports, and reproducible Track2p benchmark ablations.
 
 ## Package layout
 
@@ -14,6 +14,8 @@ bayescatrack/
       association/
       datasets/
         track2p/
+      evaluation/
+      experiments/
       io/
         suite2p.py
         track2p.py
@@ -29,6 +31,7 @@ bayescatrack/
 - Builds ROI-aware pairwise association costs and standard `SessionAssociationBundle` objects.
 - Registers later-session ROIs into an earlier session's coordinate frame before association.
 - Loads Track2p reference identities and scores pairwise association predictions.
+- Runs Track2p baseline, PyRecEst global-assignment, and LOSO calibrated-cost benchmark ablations.
 - Exports per-session measurements and state moments to a single `.npz` archive.
 - Includes a CLI for quick inspection.
 
@@ -63,6 +66,47 @@ Validate that PyRecEst objects can be instantiated during export:
 python -m bayescatrack export /path/to/jm039 /tmp/jm039_plane0.npz \
   --validate-pyrecest
 ```
+
+Run the Track2p default benchmark row:
+
+```bash
+python -m bayescatrack benchmark track2p \
+  --data /path/to/track2p_zenodo \
+  --method track2p-baseline
+```
+
+Run the clean global-assignment ablation with registered IoU costs and skip edges:
+
+```bash
+python -m bayescatrack benchmark track2p \
+  --data /path/to/track2p_zenodo \
+  --method global-assignment \
+  --cost registered-iou \
+  --max-gap 2
+```
+
+Run the BayesCaTrack ROI-aware cost ablation:
+
+```bash
+python -m bayescatrack benchmark track2p \
+  --data /path/to/track2p_zenodo \
+  --method global-assignment \
+  --cost roi-aware \
+  --max-gap 2
+```
+
+Run the LOSO calibrated-cost ablation:
+
+```bash
+python -m bayescatrack benchmark track2p \
+  --data /path/to/track2p_zenodo \
+  --method global-assignment \
+  --cost calibrated \
+  --split leave-one-subject-out \
+  --max-gap 2
+```
+
+The benchmark prints a compact table by default and can also write JSON or CSV via `--format json --output results.json` or `--format csv --output results.csv`.
 
 ## Python example
 
@@ -119,5 +163,6 @@ scores = score_pairwise_matches(predicted_pairs, reference_pairs)
 ## Notes
 
 - The state layout is `[pos_1, vel_1, pos_2, vel_2]`.
+- The benchmark keeps Track2p/Suite2p and calcium-imaging assumptions inside BayesCaTrack while using PyRecEst only for abstract global assignment.
 - BayesCaTrack is the canonical import namespace for the package.
 - `--validate-pyrecest` is useful when you want the export step to fail early if the current environment cannot instantiate the expected PyRecEst classes.
