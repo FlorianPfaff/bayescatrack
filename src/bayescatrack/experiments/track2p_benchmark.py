@@ -23,6 +23,7 @@ from bayescatrack.evaluation.track2p_metrics import normalize_track_matrix, scor
 from bayescatrack.reference import Track2pReference, load_aligned_subject_reference, load_track2p_reference
 
 BenchmarkMethod = Literal["track2p-baseline", "global-assignment"]
+BenchmarkSplit = Literal["subject", "leave-one-subject-out"]
 OutputFormat = Literal["table", "json", "csv"]
 
 
@@ -33,6 +34,7 @@ class Track2pBenchmarkConfig:
 
     data: Path
     method: BenchmarkMethod
+    split: BenchmarkSplit = "subject"
     plane_name: str = "plane0"
     input_format: str = "auto"
     reference: Path | None = None
@@ -80,6 +82,15 @@ class SubjectBenchmarkResult:
 
 def run_track2p_benchmark(config: Track2pBenchmarkConfig) -> list[SubjectBenchmarkResult]:
     """Run a Track2p benchmark over one subject directory or a dataset root."""
+
+    if config.split == "leave-one-subject-out":
+        if config.method != "global-assignment" or config.cost != "calibrated":
+            raise ValueError("LOSO calibration requires method='global-assignment' and cost='calibrated'")
+        from bayescatrack.experiments.track2p_loso_calibration import run_track2p_loso_calibration
+
+        return run_track2p_loso_calibration(config).to_benchmark_results()
+    if config.cost == "calibrated":
+        raise ValueError("cost='calibrated' requires split='leave-one-subject-out'")
 
     subject_dirs = discover_subject_dirs(config.data)
     if not subject_dirs:
@@ -159,11 +170,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--data", required=True, type=Path, help="Track2p dataset root or one subject directory")
     parser.add_argument("--method", required=True, choices=("track2p-baseline", "global-assignment"), help="Benchmark variant to run")
+    parser.add_argument("--split", default="subject", choices=("subject", "leave-one-subject-out"), help="Evaluation split policy")
     parser.add_argument("--plane", dest="plane_name", default="plane0", help="Plane name such as plane0")
     parser.add_argument("--input-format", default="auto", choices=("auto", "suite2p", "npy"), help="Input format for loading sessions")
     parser.add_argument("--reference", type=Path, default=None, help="Optional ground-truth root, subject directory, or track2p folder")
     parser.add_argument("--curated-only", action="store_true", help="Evaluate only reference tracks marked curated")
-    parser.add_argument("--cost", default="registered-iou", choices=("registered-iou", "roi-aware"), help="Pairwise cost used by global assignment")
+    parser.add_argument(
+        "--cost",
+        default="registered-iou",
+        choices=("registered-iou", "roi-aware", "calibrated"),
+        help="Pairwise cost used by global assignment",
+    )
     parser.add_argument("--max-gap", type=int, default=2, help="Maximum forward session gap for global-assignment edges")
     parser.add_argument("--transform-type", default="affine", choices=("affine", "rigid"), help="Track2p registration transform type")
     parser.add_argument("--start-cost", type=float, default=5.0, help="PyRecEst track start cost")
@@ -236,8 +253,15 @@ def _predict_subject_tracks(subject_dir: Path, config: Track2pBenchmarkConfig) -
         pairwise_cost_kwargs=config.pairwise_cost_kwargs,
     )
     predicted = tracks_to_suite2p_index_matrix(assignment.result.tracks, sessions)
-    variant_name = "Same costs + global assignment" if config.cost == "registered-iou" else "BayesCaTrack costs + global assignment"
-    return predicted, variant_name
+    return predicted, _variant_name(config.cost)
+
+
+def _variant_name(cost: AssociationCost) -> str:
+    if cost == "registered-iou":
+        return "Same costs + global assignment"
+    if cost == "calibrated":
+        return "Calibrated costs + global assignment"
+    return "BayesCaTrack costs + global assignment"
 
 
 def _load_reference_for_subject(subject_dir: Path, *, data_root: Path, config: Track2pBenchmarkConfig) -> Track2pReference:
@@ -294,6 +318,7 @@ def _config_from_args(args: argparse.Namespace) -> Track2pBenchmarkConfig:
     return Track2pBenchmarkConfig(
         data=args.data,
         method=args.method,
+        split=args.split,
         plane_name=args.plane_name,
         input_format=args.input_format,
         reference=args.reference,
@@ -343,6 +368,9 @@ def _csv_fieldnames(rows: Sequence[dict[str, float | int | str]]) -> list[str]:
         "pairwise_recall",
         "complete_tracks",
         "mean_track_length",
+        "training_examples",
+        "positive_examples",
+        "negative_examples",
     ]
     remaining = sorted({key for row in rows for key in row} - set(preferred))
     return [key for key in preferred if any(key in row for row in rows)] + remaining
