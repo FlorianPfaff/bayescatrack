@@ -21,7 +21,11 @@ from bayescatrack.association.pyrecest_global_assignment import (
 )
 from bayescatrack.core.bridge import Track2pSession, load_track2p_subject
 from bayescatrack.evaluation.track2p_metrics import normalize_track_matrix, score_track_matrices
-from bayescatrack.experiments.track2p_benchmark import SubjectBenchmarkResult, Track2pBenchmarkConfig, discover_subject_dirs
+from bayescatrack.experiments.track2p_benchmark import (
+    SubjectBenchmarkResult,
+    Track2pBenchmarkConfig,
+    discover_subject_dirs,
+)
 from bayescatrack.reference import Track2pReference, load_track2p_reference
 
 
@@ -79,7 +83,6 @@ class LosoCalibrationResult:
 
 
 # pylint: disable=too-many-arguments,too-many-locals
-
 def run_track2p_loso_calibration(
     config: Track2pBenchmarkConfig,
     *,
@@ -199,7 +202,6 @@ def _reference_candidates(subject_dir: Path, reference_root: Path) -> tuple[Path
 
 
 # pylint: disable=too-many-arguments
-
 def _collect_training_examples(
     training_subjects: Sequence[SubjectCalibrationData],
     *,
