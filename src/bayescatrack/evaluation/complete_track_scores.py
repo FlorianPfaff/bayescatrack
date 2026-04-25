@@ -181,10 +181,10 @@ def _parse_optional_int(value: Any) -> int | None:
 
 
 def _coerce_optional_scalar(value: Any) -> Any:
-    if value is None:
-        return None
     if isinstance(value, bytes):
         value = value.decode("utf-8")
+    if value is None:
+        return None
     if isinstance(value, str):
         stripped = value.strip()
         return None if stripped.lower() in _MISSING_STRINGS else stripped
