@@ -22,4 +22,4 @@ load_track2p_subject = _bridge_impl.load_track2p_subject
 main = _bridge_impl.main
 summarize_subject = _bridge_impl.summarize_subject
 
-__all__ = BRIDGE_PUBLIC_NAMES
+__all__ = tuple(BRIDGE_PUBLIC_NAMES)
