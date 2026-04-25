@@ -1,16 +1,16 @@
 """Evaluation helpers for BayesCaTrack benchmarks."""
 
-from .complete_track_scores import (
-    __all__ as _complete_track_score_exports,
-    complete_track_set as complete_track_set,
-    normalize_track_matrix as normalize_track_matrix,
-    pairwise_track_set as pairwise_track_set,
-    score_complete_tracks as score_complete_tracks,
-    score_pairwise_tracks as score_pairwise_tracks,
-    score_track_matrices as score_track_matrices,
-    summarize_tracks as summarize_tracks,
-    track_lengths as track_lengths,
-)
-from .track2p_metrics import score_track_matrix_against_reference as score_track_matrix_against_reference
+from . import complete_track_scores as _complete_track_scores
+from . import track2p_metrics as _track2p_metrics
 
-__all__ = [*_complete_track_score_exports, "score_track_matrix_against_reference"]
+complete_track_set = _complete_track_scores.complete_track_set
+normalize_track_matrix = _complete_track_scores.normalize_track_matrix
+pairwise_track_set = _complete_track_scores.pairwise_track_set
+score_complete_tracks = _complete_track_scores.score_complete_tracks
+score_pairwise_tracks = _complete_track_scores.score_pairwise_tracks
+score_track_matrices = _complete_track_scores.score_track_matrices
+summarize_tracks = _complete_track_scores.summarize_tracks
+track_lengths = _complete_track_scores.track_lengths
+score_track_matrix_against_reference = _track2p_metrics.score_track_matrix_against_reference
+
+__all__ = [*_complete_track_scores.__all__, "score_track_matrix_against_reference"]
