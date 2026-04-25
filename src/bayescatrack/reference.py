@@ -110,6 +110,11 @@ class Track2pReference:
         )
         return complete_tracks[sort_order]
 
+    def filtered_indices(self, *, curated_only: bool = False) -> np.ndarray:
+        """Return reference indices, optionally restricted to curated tracks."""
+
+        return self._filtered_indices(curated_only=curated_only)
+
     def _filtered_indices(self, *, curated_only: bool = False) -> np.ndarray:
         keep = np.ones((self.n_tracks,), dtype=bool)
         if curated_only:
@@ -381,7 +386,7 @@ def score_complete_tracks_against_reference(
             "predicted_suite2p_indices must have shape (n_tracks, reference.n_sessions)"
         )
 
-    reference_indices = reference._filtered_indices(curated_only=curated_only)
+    reference_indices = reference.filtered_indices(curated_only=curated_only)
     if restrict_to_reference_seed_rois:
         predicted_matrix = _filter_tracks_by_seed_rois(
             predicted_matrix,
