@@ -95,9 +95,14 @@ def _write_raw_npy_session(
 
 def _make_three_roi_masks(shift_x: int = 0) -> np.ndarray:
     masks = np.zeros((3, 8, 10), dtype=bool)
-    masks[0, 0:2, 0 + shift_x:2 + shift_x] = True
-    masks[1, 2:4, 4 + shift_x:6 + shift_x] = True
-    masks[2, 5:7, 1 + shift_x:3 + shift_x] = True
+    roi_columns = (
+        slice(shift_x, 2 + shift_x),
+        slice(4 + shift_x, 6 + shift_x),
+        slice(1 + shift_x, 3 + shift_x),
+    )
+    masks[0, 0:2, roi_columns[0]] = True
+    masks[1, 2:4, roi_columns[1]] = True
+    masks[2, 5:7, roi_columns[2]] = True
     return masks
 
 
