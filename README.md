@@ -31,7 +31,7 @@ bayescatrack/
 - Builds ROI-aware pairwise association costs and standard `SessionAssociationBundle` objects.
 - Registers later-session ROIs into an earlier session's coordinate frame before association.
 - Loads Track2p reference identities and scores pairwise association predictions.
-- Runs Track2p baseline and PyRecEst global-assignment benchmark ablations.
+- Runs Track2p baseline, PyRecEst global-assignment, and LOSO calibrated-cost benchmark ablations.
 - Exports per-session measurements and state moments to a single `.npz` archive.
 - Includes a CLI for quick inspection.
 
@@ -92,6 +92,17 @@ python -m bayescatrack benchmark track2p \
   --data /path/to/track2p_zenodo \
   --method global-assignment \
   --cost roi-aware \
+  --max-gap 2
+```
+
+Run the LOSO calibrated-cost ablation:
+
+```bash
+python -m bayescatrack benchmark track2p \
+  --data /path/to/track2p_zenodo \
+  --method global-assignment \
+  --cost calibrated \
+  --split leave-one-subject-out \
   --max-gap 2
 ```
 
