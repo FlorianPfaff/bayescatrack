@@ -1,0 +1,4 @@
+method: track2p-baseline
+plane_name: plane0
+input_format: auto
+curated_only: false

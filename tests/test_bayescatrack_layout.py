@@ -29,3 +29,10 @@ def test_bayescatrack_module_entry_point_help():
     proc = run_module("-m", "bayescatrack", "--help")
     assert "summary" in proc.stdout
     assert "export" in proc.stdout
+    assert "benchmark" in proc.stdout
+
+
+def test_bayescatrack_track2p_benchmark_help():
+    proc = run_module("-m", "bayescatrack", "benchmark", "track2p", "--help")
+    assert "track2p-baseline" in proc.stdout
+    assert "global-assignment" in proc.stdout
