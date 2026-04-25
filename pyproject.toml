@@ -24,6 +24,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
 bayescatrack = ["configs/*.yaml"]
+
 [tool.poetry]
 requires-poetry = ">=2.1"
 
@@ -67,6 +68,7 @@ disable = [
   "C",
   "W0221",
   "cyclic-import",
+  "duplicate-code",
 ]
 
 [tool.pylint.FORMAT]
