@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from bayescatrack.association.calibrated_costs import CalibratedAssociationModel
 from bayescatrack.association.pyrecest_global_assignment import (
     AssociationCost,
     GlobalAssignmentRun,
@@ -40,6 +41,7 @@ def run_track2p_global_assignment_ablation(
     reference: Track2pReference | str | Path | None = None,
     curated_only: bool = False,
     cost: AssociationCost = "registered-iou",
+    calibrated_model: CalibratedAssociationModel | None = None,
     max_gap: int = 2,
     transform_type: str = "affine",
     start_cost: float = 5.0,
@@ -68,6 +70,7 @@ def run_track2p_global_assignment_ablation(
         sessions,
         max_gap=max_gap,
         cost=cost,
+        calibrated_model=calibrated_model,
         transform_type=transform_type,
         start_cost=start_cost,
         end_cost=end_cost,
@@ -86,15 +89,22 @@ def run_track2p_global_assignment_ablation(
         track2p_reference,
         curated_only=curated_only,
     )
-    variant = "Same costs + global assignment" if cost == "registered-iou" else "BayesCaTrack costs + global assignment"
     return Track2pGlobalAssignmentAblation(
         subject_dir=subject_dir,
-        variant=variant,
+        variant=_variant_name(cost),
         assignment=assignment,
         predicted_track_matrix=predicted_track_matrix,
         scores=scores,
         reference_source=track2p_reference.source,
     )
+
+
+def _variant_name(cost: AssociationCost) -> str:
+    if cost == "registered-iou":
+        return "Same costs + global assignment"
+    if cost == "calibrated":
+        return "Calibrated costs + global assignment"
+    return "BayesCaTrack costs + global assignment"
 
 
 def _load_reference(subject_dir: Path, *, reference: Track2pReference | str | Path | None, plane_name: str) -> Track2pReference:

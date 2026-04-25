@@ -8,10 +8,18 @@ from typing import Any, Literal
 
 import numpy as np
 
-from bayescatrack.core.bridge import Track2pSession, build_session_pair_association_bundle
+from bayescatrack.association.calibrated_costs import (
+    CalibratedAssociationModel,
+    calibrated_cost_matrix_from_bundle,
+)
+from bayescatrack.core.bridge import (
+    SessionAssociationBundle,
+    Track2pSession,
+    build_session_pair_association_bundle,
+)
 from bayescatrack.track2p_registration import register_plane_pair
 
-AssociationCost = Literal["registered-iou", "roi-aware"]
+AssociationCost = Literal["registered-iou", "roi-aware", "calibrated"]
 SessionEdge = tuple[int, int]
 
 
@@ -69,6 +77,7 @@ def build_registered_pairwise_costs(
     *,
     max_gap: int = 2,
     cost: AssociationCost = "registered-iou",
+    calibrated_model: CalibratedAssociationModel | None = None,
     transform_type: str = "affine",
     order: str = "xy",
     weighted_centroids: bool = False,
@@ -101,9 +110,13 @@ def build_registered_pairwise_costs(
             velocity_variance=velocity_variance,
             regularization=regularization,
             pairwise_cost_kwargs=base_cost_kwargs,
-            return_pairwise_components=return_pairwise_components,
+            return_pairwise_components=return_pairwise_components or cost == "calibrated",
         )
-        pairwise_costs[(source_session, target_session)] = np.asarray(bundle.pairwise_cost_matrix, dtype=float)
+        pairwise_costs[(source_session, target_session)] = _pairwise_cost_matrix_from_bundle(
+            bundle,
+            cost=cost,
+            calibrated_model=calibrated_model,
+        )
     return pairwise_costs
 
 
@@ -113,6 +126,7 @@ def solve_global_assignment_for_sessions(
     *,
     max_gap: int = 2,
     cost: AssociationCost = "registered-iou",
+    calibrated_model: CalibratedAssociationModel | None = None,
     transform_type: str = "affine",
     start_cost: float = 5.0,
     end_cost: float = 5.0,
@@ -131,6 +145,7 @@ def solve_global_assignment_for_sessions(
         sessions,
         max_gap=max_gap,
         cost=cost,
+        calibrated_model=calibrated_model,
         transform_type=transform_type,
         order=order,
         weighted_centroids=weighted_centroids,
@@ -177,10 +192,23 @@ def tracks_to_suite2p_index_matrix(tracks: Sequence[Mapping[int, int]], sessions
     return matrix
 
 
+def _pairwise_cost_matrix_from_bundle(
+    bundle: SessionAssociationBundle,
+    *,
+    cost: AssociationCost,
+    calibrated_model: CalibratedAssociationModel | None,
+) -> np.ndarray:
+    if cost == "calibrated":
+        if calibrated_model is None:
+            raise ValueError("calibrated_model is required when cost='calibrated'")
+        return calibrated_cost_matrix_from_bundle(bundle, calibrated_model)
+    return np.asarray(bundle.pairwise_cost_matrix, dtype=float)
+
+
 def _cost_kwargs_for_method(cost: AssociationCost) -> dict[str, Any]:
     if cost == "registered-iou":
         return registered_iou_cost_kwargs()
-    if cost == "roi-aware":
+    if cost in {"roi-aware", "calibrated"}:
         return roi_aware_cost_kwargs()
     raise ValueError(f"Unsupported association cost: {cost}")
 
