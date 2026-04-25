@@ -3,7 +3,7 @@ import importlib.util
 import bayescatrack
 from bayescatrack import association
 from bayescatrack import io as bayescatrack_io
-from bayescatrack import reference, registration, track2p_registration
+from bayescatrack import reference, registration, track2p_registration, tracking
 from bayescatrack.core import bridge as bayescatrack_bridge
 from bayescatrack.datasets import track2p as bayescatrack_track2p
 from tests._support import run_module
@@ -17,7 +17,7 @@ def test_root_package_exports_expected_public_api():
 def test_subpackages_expose_expected_package_native_modules():
     for module in (association, bayescatrack_track2p, bayescatrack_io):
         assert module.__all__
-    for module in (reference, registration, track2p_registration):
+    for module in (reference, registration, track2p_registration, tracking):
         assert module.__name__.startswith("bayescatrack.")
 
 
