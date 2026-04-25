@@ -7,6 +7,7 @@ and provides small helpers for evaluating predicted associations.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -77,6 +78,42 @@ class Track2pReference:
         """Return a boolean mask for tracks present in every session."""
 
         return np.all(self.present_mask(), axis=1)
+
+    def complete_tracks(
+        self,
+        *,
+        session_indices: Sequence[int] | None = None,
+        curated_only: bool = False,
+    ) -> np.ndarray:
+        """Return tracks present in every selected session.
+
+        The returned matrix contains Suite2p ROI indices with shape
+        ``(n_complete_tracks, n_selected_sessions)``. A track is complete for a
+        set of sessions only when none of its selected entries are missing.
+        """
+
+        normalized_sessions = _normalize_session_indices(session_indices, self.n_sessions)
+        indices = self._filtered_indices(curated_only=curated_only)
+        selected = indices[:, normalized_sessions]
+
+        complete_rows: list[tuple[int, ...]] = []
+        for row in selected:
+            if all(value is not None for value in row):
+                complete_rows.append(tuple(int(value) for value in row))
+
+        if not complete_rows:
+            return np.zeros((0, len(normalized_sessions)), dtype=int)
+
+        complete_tracks = np.asarray(complete_rows, dtype=int)
+        sort_order = np.lexsort(
+            tuple(complete_tracks[:, column] for column in reversed(range(complete_tracks.shape[1])))
+        )
+        return complete_tracks[sort_order]
+
+    def filtered_indices(self, *, curated_only: bool = False) -> np.ndarray:
+        """Return reference indices, optionally restricted to curated tracks."""
+
+        return self._filtered_indices(curated_only=curated_only)
 
     def _filtered_indices(self, *, curated_only: bool = False) -> np.ndarray:
         keep = np.ones((self.n_tracks,), dtype=bool)
@@ -280,6 +317,91 @@ def score_pairwise_matches(
     }
 
 
+def score_complete_tracks(
+    predicted_tracks: Sequence[Sequence[Any]] | np.ndarray,
+    reference_tracks: Sequence[Sequence[Any]] | np.ndarray,
+) -> dict[str, float | int]:
+    """Score complete multi-session tracks with the Track2p CT metric.
+
+    CT is the F1 score for full tracks:
+    ``2 * T_rc / (T_c + T_gt)``. ``T_rc`` is the number of perfectly
+    reconstructed complete tracks, ``T_c`` is the number of complete tracks in
+    the prediction, and ``T_gt`` is the number of complete ground-truth tracks.
+    Rows containing missing values are ignored because they are not complete
+    over the evaluated sessions.
+    """
+
+    predicted_matrix = _as_nullable_int_matrix(predicted_tracks)
+    reference_matrix = _as_nullable_int_matrix(reference_tracks)
+    if predicted_matrix.ndim != 2 or reference_matrix.ndim != 2:
+        raise ValueError("Track matrices must be two-dimensional")
+    if predicted_matrix.shape[1] != reference_matrix.shape[1]:
+        raise ValueError("Predicted and reference tracks must have the same number of sessions")
+
+    predicted_complete = Counter(_complete_track_tuples(predicted_matrix))
+    reference_complete = Counter(_complete_track_tuples(reference_matrix))
+    reconstructed_complete_tracks = int(sum(predicted_complete.values()))
+    ground_truth_complete_tracks = int(sum(reference_complete.values()))
+    perfectly_reconstructed_tracks = int(sum((predicted_complete & reference_complete).values()))
+    complete_tracks_score = _safe_ratio(
+        2.0 * perfectly_reconstructed_tracks,
+        reconstructed_complete_tracks + ground_truth_complete_tracks,
+    )
+
+    return {
+        "perfectly_reconstructed_tracks": perfectly_reconstructed_tracks,
+        "reconstructed_complete_tracks": reconstructed_complete_tracks,
+        "ground_truth_complete_tracks": ground_truth_complete_tracks,
+        "T_rc": perfectly_reconstructed_tracks,
+        "T_c": reconstructed_complete_tracks,
+        "T_gt": ground_truth_complete_tracks,
+        "complete_tracks_score": complete_tracks_score,
+        "ct": complete_tracks_score,
+    }
+
+
+def score_complete_tracks_against_reference(
+    predicted_suite2p_indices: Sequence[Sequence[Any]] | np.ndarray,
+    reference: Track2pReference,
+    *,
+    session_indices: Sequence[int] | None = None,
+    curated_only: bool = False,
+    seed_session: int = 0,
+    restrict_to_reference_seed_rois: bool = True,
+) -> dict[str, float | int]:
+    """Score predicted Track2p-style index rows against a reference.
+
+    ``predicted_suite2p_indices`` should have one column per reference session.
+    By default, predicted tracks are restricted to rows whose seed-session ROI is
+    part of the reference set. This mirrors Track2p-style benchmark protocols
+    where only tracks originating from selected seed ROIs are evaluated.
+    """
+
+    normalized_sessions = _normalize_session_indices(session_indices, reference.n_sessions)
+    _validate_session_index(seed_session, reference.n_sessions)
+
+    predicted_matrix = _as_nullable_int_matrix(predicted_suite2p_indices)
+    if predicted_matrix.ndim != 2 or predicted_matrix.shape[1] != reference.n_sessions:
+        raise ValueError(
+            "predicted_suite2p_indices must have shape (n_tracks, reference.n_sessions)"
+        )
+
+    reference_indices = reference.filtered_indices(curated_only=curated_only)
+    if restrict_to_reference_seed_rois:
+        predicted_matrix = _filter_tracks_by_seed_rois(
+            predicted_matrix,
+            reference_indices,
+            seed_session=seed_session,
+        )
+
+    predicted_tracks = predicted_matrix[:, normalized_sessions]
+    reference_tracks = reference.complete_tracks(
+        session_indices=normalized_sessions,
+        curated_only=curated_only,
+    )
+    return score_complete_tracks(predicted_tracks, reference_tracks)
+
+
 def score_label_vectors_against_reference(
     *,
     labels_a: Sequence[Any],
@@ -328,6 +450,46 @@ def _parse_optional_int(value: Any) -> int | None:
     if integer_value < 0:
         return None
     return integer_value
+
+
+def _complete_track_tuples(track_matrix: np.ndarray) -> list[tuple[int, ...]]:
+    complete_tracks: list[tuple[int, ...]] = []
+    for row in track_matrix:
+        if all(value is not None for value in row):
+            complete_tracks.append(tuple(int(value) for value in row))
+    return complete_tracks
+
+
+def _filter_tracks_by_seed_rois(
+    predicted_tracks: np.ndarray,
+    reference_indices: np.ndarray,
+    *,
+    seed_session: int,
+) -> np.ndarray:
+    reference_seed_rois = {
+        int(value) for value in reference_indices[:, seed_session] if value is not None
+    }
+    if not reference_seed_rois:
+        return predicted_tracks[:0]
+    keep = [row[seed_session] in reference_seed_rois for row in predicted_tracks]
+    return predicted_tracks[np.asarray(keep, dtype=bool)]
+
+
+def _normalize_session_indices(
+    session_indices: Sequence[int] | None,
+    n_sessions: int,
+) -> tuple[int, ...]:
+    if session_indices is None:
+        normalized = tuple(range(n_sessions))
+    else:
+        normalized = tuple(int(session_index) for session_index in session_indices)
+    if not normalized:
+        raise ValueError("At least one session must be selected")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("session_indices must not contain duplicate sessions")
+    for session_index in normalized:
+        _validate_session_index(session_index, n_sessions)
+    return normalized
 
 
 def _plane_index_from_name(plane_name: str) -> int:
