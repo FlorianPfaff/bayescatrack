@@ -1,7 +1,6 @@
-"""Compatibility bridge for the BayesCaTrack package layout."""
-
-import track2p_pyrecest_bridge as _bridge
+"""Public bridge exports for BayesCaTrack core."""
 
 from .._exports import BRIDGE_PUBLIC_NAMES, reexport
+from . import _bridge_impl
 
-__all__ = reexport(_bridge, globals(), BRIDGE_PUBLIC_NAMES)
+__all__ = reexport(_bridge_impl, globals(), BRIDGE_PUBLIC_NAMES)

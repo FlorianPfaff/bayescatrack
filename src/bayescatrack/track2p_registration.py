@@ -1,7 +1,16 @@
 """Track2p-backed registration helpers for BayesCaTrack."""
 
-import track2p_pyrecest_bridge.track2p_registration as _track2p_registration
+from ._legacy_import import bridge_alias
 
-from ._exports import TRACK2P_REGISTRATION_PUBLIC_NAMES, reexport
+with bridge_alias():
+    from ._track2p_registration_impl import (
+        build_registered_subject_association_bundles,
+        register_consecutive_session_measurement_planes,
+        register_plane_pair,
+    )
 
-__all__ = reexport(_track2p_registration, globals(), TRACK2P_REGISTRATION_PUBLIC_NAMES)
+__all__ = (
+    "build_registered_subject_association_bundles",
+    "register_consecutive_session_measurement_planes",
+    "register_plane_pair",
+)
