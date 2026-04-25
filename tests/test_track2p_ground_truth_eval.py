@@ -1,5 +1,4 @@
 import numpy as np
-
 from bayescatrack.ground_truth_eval import TrackTable, evaluate_track_table_prediction
 
 
