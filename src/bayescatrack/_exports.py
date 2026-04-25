@@ -1,5 +1,7 @@
 """Shared export groups and re-export helpers for BayesCaTrack wrappers."""
 
+# pylint: disable=duplicate-code
+
 from __future__ import annotations
 
 from types import ModuleType
