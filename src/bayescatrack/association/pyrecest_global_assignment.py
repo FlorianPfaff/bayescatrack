@@ -107,6 +107,7 @@ def build_registered_pairwise_costs(
             return_pairwise_components=return_pairwise_components or cost == "calibrated",
         )
         if cost == "calibrated":
+            assert calibrated_model is not None
             pairwise_costs[(source_session, target_session)] = calibrated_cost_matrix_from_bundle(bundle, calibrated_model)
         else:
             pairwise_costs[(source_session, target_session)] = np.asarray(bundle.pairwise_cost_matrix, dtype=float)

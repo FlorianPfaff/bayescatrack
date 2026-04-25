@@ -11,20 +11,21 @@ import numpy as np
 
 from bayescatrack.association.calibrated_costs import (
     DEFAULT_ASSOCIATION_FEATURES,
+    ReferenceTrainingOptions,
     collect_reference_training_examples,
     fit_logistic_association_model,
 )
 from bayescatrack.association.pyrecest_global_assignment import (
     session_edge_pairs,
-    solve_global_assignment_for_sessions,
     tracks_to_suite2p_index_matrix,
 )
 from bayescatrack.core.bridge import Track2pSession, load_track2p_subject
-from bayescatrack.evaluation.track2p_metrics import normalize_track_matrix, score_track_matrices
+from bayescatrack.evaluation.complete_track_scores import normalize_track_matrix, score_track_matrices
 from bayescatrack.experiments.track2p_benchmark import (
     SubjectBenchmarkResult,
     Track2pBenchmarkConfig,
     discover_subject_dirs,
+    solve_configured_global_assignment,
 )
 from bayescatrack.reference import Track2pReference, load_track2p_reference
 
@@ -116,21 +117,11 @@ def run_track2p_loso_calibration(
             sample_weight=sample_weight,
             model_kwargs=model_kwargs,
         )
-        assignment = solve_global_assignment_for_sessions(
+        assignment = solve_configured_global_assignment(
             held_out.sessions,
-            max_gap=config.max_gap,
+            config,
             cost="calibrated",
             calibrated_model=calibrated_model,
-            transform_type=config.transform_type,
-            start_cost=config.start_cost,
-            end_cost=config.end_cost,
-            gap_penalty=config.gap_penalty,
-            cost_threshold=config.cost_threshold,
-            order=config.order,
-            weighted_centroids=config.weighted_centroids,
-            velocity_variance=config.velocity_variance,
-            regularization=config.regularization,
-            pairwise_cost_kwargs=config.pairwise_cost_kwargs,
         )
         predicted_matrix = tracks_to_suite2p_index_matrix(assignment.result.tracks, held_out.sessions)
         scores = score_track_matrices(predicted_matrix, _reference_matrix(held_out.reference, curated_only=config.curated_only))
@@ -210,19 +201,13 @@ def _collect_training_examples(
 ) -> tuple[np.ndarray, np.ndarray]:
     feature_blocks: list[np.ndarray] = []
     label_blocks: list[np.ndarray] = []
+    training_options = _reference_training_options(config, feature_names)
     for subject in training_subjects:
         features, labels = collect_reference_training_examples(
             subject.sessions,
             subject.reference,
             session_edges=session_edge_pairs(len(subject.sessions), max_gap=config.max_gap),
-            curated_only=config.curated_only,
-            transform_type=config.transform_type,
-            order=config.order,
-            weighted_centroids=config.weighted_centroids,
-            velocity_variance=config.velocity_variance,
-            regularization=config.regularization,
-            feature_names=feature_names,
-            pairwise_cost_kwargs=config.pairwise_cost_kwargs,
+            options=training_options,
         )
         feature_blocks.append(features)
         label_blocks.append(labels)
@@ -230,6 +215,19 @@ def _collect_training_examples(
     if not feature_blocks:
         raise ValueError("At least one training subject is required")
     return np.concatenate(feature_blocks, axis=0), np.concatenate(label_blocks, axis=0)
+
+
+def _reference_training_options(config: Track2pBenchmarkConfig, feature_names: Sequence[str]) -> ReferenceTrainingOptions:
+    return ReferenceTrainingOptions(
+        curated_only=config.curated_only,
+        transform_type=config.transform_type,
+        order=config.order,
+        weighted_centroids=config.weighted_centroids,
+        velocity_variance=config.velocity_variance,
+        regularization=config.regularization,
+        feature_names=tuple(feature_names),
+        pairwise_cost_kwargs=config.pairwise_cost_kwargs,
+    )
 
 
 def _reference_matrix(reference: Track2pReference, *, curated_only: bool) -> np.ndarray:

@@ -13,13 +13,15 @@ from typing import Any, Literal
 
 import numpy as np
 
+from bayescatrack.association.calibrated_costs import CalibratedAssociationModel
 from bayescatrack.association.pyrecest_global_assignment import (
     AssociationCost,
+    GlobalAssignmentRun,
     solve_global_assignment_for_sessions,
     tracks_to_suite2p_index_matrix,
 )
-from bayescatrack.core.bridge import find_track2p_session_dirs, load_track2p_subject
-from bayescatrack.evaluation.track2p_metrics import normalize_track_matrix, score_track_matrices
+from bayescatrack.core.bridge import Track2pSession, find_track2p_session_dirs, load_track2p_subject
+from bayescatrack.evaluation.complete_track_scores import normalize_track_matrix, score_track_matrices
 from bayescatrack.reference import Track2pReference, load_aligned_subject_reference, load_track2p_reference
 
 BenchmarkMethod = Literal["track2p-baseline", "global-assignment"]
@@ -237,10 +239,25 @@ def _predict_subject_tracks(subject_dir: Path, config: Track2pBenchmarkConfig) -
         weighted_masks=config.weighted_masks,
         exclude_overlapping_pixels=config.exclude_overlapping_pixels,
     )
-    assignment = solve_global_assignment_for_sessions(
+    assignment = solve_configured_global_assignment(sessions, config)
+    predicted = tracks_to_suite2p_index_matrix(assignment.result.tracks, sessions)
+    return predicted, _variant_name(config.cost)
+
+
+def solve_configured_global_assignment(
+    sessions: Sequence[Track2pSession],
+    config: Track2pBenchmarkConfig,
+    *,
+    cost: AssociationCost | None = None,
+    calibrated_model: CalibratedAssociationModel | None = None,
+) -> GlobalAssignmentRun:
+    """Run global assignment using the benchmark configuration knobs."""
+
+    return solve_global_assignment_for_sessions(
         sessions,
         max_gap=config.max_gap,
-        cost=config.cost,
+        cost=config.cost if cost is None else cost,
+        calibrated_model=calibrated_model,
         transform_type=config.transform_type,
         start_cost=config.start_cost,
         end_cost=config.end_cost,
@@ -252,8 +269,6 @@ def _predict_subject_tracks(subject_dir: Path, config: Track2pBenchmarkConfig) -
         regularization=config.regularization,
         pairwise_cost_kwargs=config.pairwise_cost_kwargs,
     )
-    predicted = tracks_to_suite2p_index_matrix(assignment.result.tracks, sessions)
-    return predicted, _variant_name(config.cost)
 
 
 def _variant_name(cost: AssociationCost) -> str:
