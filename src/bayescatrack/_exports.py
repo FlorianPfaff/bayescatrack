@@ -1,6 +1,6 @@
-"""Shared export groups and re-export helpers for BayesCaTrack wrappers."""
+"""Shared export groups and re-export helpers for BayesCaTrack modules."""
 
-# pylint: disable=duplicate-code
+# pylint: disable=duplicate-code,undefined-all-variable
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def reexport(
     target_globals: dict[str, Any],
     names: tuple[str, ...] | None = None,
 ) -> tuple[str, ...]:
-    """Copy named attributes from ``source`` into a wrapper module namespace."""
+    """Copy named attributes from ``source`` into a target module namespace."""
 
     export_names = tuple(getattr(source, "__all__", ())) if names is None else tuple(names)
     target_globals.update({name: getattr(source, name) for name in export_names})

@@ -49,8 +49,6 @@ ignore = ["CVS"]
 ignored-modules = [
     "pyrecest.backend",
     "healpy",
-    "track2p_pyrecest_bridge",
-    "track2p_pyrecest_bridge.matching",
 ]
 
 [tool.pylint."MESSAGES CONTROL"]
