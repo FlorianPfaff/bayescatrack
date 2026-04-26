@@ -58,6 +58,7 @@ class Track2pBenchmarkConfig:
     velocity_variance: float = 25.0
     regularization: float = 1.0e-6
     pairwise_cost_kwargs: dict[str, Any] | None = None
+    progress: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,25 @@ class SubjectBenchmarkResult:
         }
 
 
+class ProgressReporter:
+    """Small stderr progress reporter that keeps machine-readable stdout clean."""
+
+    def __init__(self, total: int, *, enabled: bool, label: str) -> None:
+        self.total = max(int(total), 1)
+        self.enabled = bool(enabled)
+        self.label = label
+        self.current = 0
+
+    def step(self, message: str) -> None:
+        if not self.enabled:
+            return
+        self.current = min(self.current + 1, self.total)
+        filled = int(round(20 * self.current / self.total))
+        bar = "#" * filled + "-" * (20 - filled)
+        percent = 100.0 * self.current / self.total
+        print(f"{self.label} [{bar}] {self.current}/{self.total} ({percent:5.1f}%) {message}", file=sys.stderr, flush=True)
+
+
 def run_track2p_benchmark(config: Track2pBenchmarkConfig) -> list[SubjectBenchmarkResult]:
     """Run a Track2p benchmark over one subject directory or a dataset root."""
 
@@ -99,7 +119,9 @@ def run_track2p_benchmark(config: Track2pBenchmarkConfig) -> list[SubjectBenchma
         raise ValueError(f"No Track2p-style subject directories found under {config.data}")
 
     results: list[SubjectBenchmarkResult] = []
+    progress = ProgressReporter(len(subject_dirs), enabled=config.progress, label="benchmark")
     for subject_dir in subject_dirs:
+        progress.step(f"running {subject_dir.name}")
         reference = _load_reference_for_subject(subject_dir, data_root=config.data, config=config)
         reference_matrix = _reference_matrix(reference, curated_only=config.curated_only)
         predicted_matrix, variant = _predict_subject_tracks(subject_dir, config)
@@ -235,6 +257,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--velocity-variance", type=float, default=25.0, help="Velocity variance for association bundle state moments")
     parser.add_argument("--regularization", type=float, default=1.0e-6, help="Position covariance regularization")
     parser.add_argument("--pairwise-cost-kwargs-json", default=None, help="JSON object merged into pairwise cost kwargs")
+    parser.add_argument(
+        "--progress",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Print benchmark progress to stderr",
+    )
     parser.add_argument("--output", type=Path, default=None, help="Optional output file")
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table", help="Stdout/output format")
     return parser
@@ -385,6 +413,7 @@ def _config_from_args(args: argparse.Namespace) -> Track2pBenchmarkConfig:
         velocity_variance=args.velocity_variance,
         regularization=args.regularization,
         pairwise_cost_kwargs=pairwise_cost_kwargs,
+        progress=args.progress,
     )
 
 

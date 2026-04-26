@@ -22,6 +22,7 @@ from bayescatrack.association.pyrecest_global_assignment import (
 from bayescatrack.core.bridge import Track2pSession, load_track2p_subject
 from bayescatrack.evaluation.complete_track_scores import normalize_track_matrix, score_track_matrices
 from bayescatrack.experiments.track2p_benchmark import (
+    ProgressReporter,
     SubjectBenchmarkResult,
     Track2pBenchmarkConfig,
     discover_subject_dirs,
@@ -100,7 +101,13 @@ def run_track2p_loso_calibration(
     if len(subject_dirs) < 2:
         raise ValueError("LOSO calibration requires at least two subject directories")
 
-    subjects = tuple(_load_subject_calibration_data(subject_dir, config=config) for subject_dir in subject_dirs)
+    total_steps = len(subject_dirs) + len(subject_dirs) * (len(subject_dirs) + 1)
+    progress = ProgressReporter(total_steps, enabled=config.progress, label="LOSO")
+    subjects = []
+    for subject_dir in subject_dirs:
+        progress.step(f"loading {subject_dir.name}")
+        subjects.append(_load_subject_calibration_data(subject_dir, config=config))
+    subjects = tuple(subjects)
     feature_names = tuple(feature_names)
     folds: list[LosoCalibrationFold] = []
     for held_out_index, held_out in enumerate(subjects):
@@ -109,7 +116,10 @@ def run_track2p_loso_calibration(
             training_subjects,
             config=config,
             feature_names=feature_names,
+            progress=progress,
+            held_out_subject=held_out.subject_name,
         )
+        progress.step(f"fitting model for {held_out.subject_name}")
         calibrated_model = fit_logistic_association_model(
             training_features,
             training_labels,
@@ -117,6 +127,7 @@ def run_track2p_loso_calibration(
             sample_weight=sample_weight,
             model_kwargs=model_kwargs,
         )
+        progress.step(f"solving {held_out.subject_name}")
         assignment = solve_configured_global_assignment(
             held_out.sessions,
             config,
@@ -204,11 +215,15 @@ def _collect_training_examples(
     *,
     config: Track2pBenchmarkConfig,
     feature_names: Sequence[str],
+    progress: ProgressReporter | None = None,
+    held_out_subject: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     feature_blocks: list[np.ndarray] = []
     label_blocks: list[np.ndarray] = []
     training_options = _reference_training_options(config, feature_names)
     for subject in training_subjects:
+        if progress is not None:
+            progress.step(f"collecting {subject.subject_name} training features for {held_out_subject}")
         features, labels = collect_reference_training_examples(
             subject.sessions,
             subject.reference,
