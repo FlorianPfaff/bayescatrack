@@ -1,3 +1,5 @@
+.pytest-tmp/
+
 # For ignoring cached files of GitHut action
 alpine-wheels/
 
