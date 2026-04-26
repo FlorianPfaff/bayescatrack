@@ -71,6 +71,11 @@ TRACK2P_REGISTRATION_PUBLIC_NAMES = _public_names(
     "register_plane_pair",
 )
 
+TRACKING_PUBLIC_NAMES = _public_names(
+    "SubjectTrackingResult",
+    "run_registered_subject_tracking",
+)
+
 
 def reexport(
     source: ModuleType,

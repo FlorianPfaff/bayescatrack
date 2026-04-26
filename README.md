@@ -28,6 +28,7 @@ bayescatrack/
 - Builds constant-velocity state moments that can initialize PyRecEst filters.
 - Builds ROI-aware pairwise association costs and standard `SessionAssociationBundle` objects.
 - Registers later-session ROIs into an earlier session's coordinate frame before association.
+- Stitches registration-aware pairwise matches into full predicted track rows.
 - Loads Track2p reference identities and scores pairwise association predictions.
 - Exports per-session measurements and state moments to a single `.npz` archive.
 - Includes a CLI for quick inspection.
@@ -104,6 +105,28 @@ registered = build_registered_session_pair_association_bundle(
 
 pairwise_cost_matrix = registered.association_bundle.pairwise_cost_matrix
 registered_plane = registered.plane_registration.registered_measurement_plane
+```
+
+## Tracking Runner Example
+
+```python
+from bayescatrack.tracking import run_registered_subject_tracking
+
+result = run_registered_subject_tracking(
+    "/path/to/jm039",
+    plane_name="plane0",
+    input_format="auto",
+    registration_model="affine",
+    pairwise_cost_kwargs={
+        "max_centroid_distance": 25.0,
+        "roi_feature_weight": 0.25,
+    },
+    assignment_max_cost=50.0,
+)
+
+predicted_tracks = result.track_rows
+link_costs = result.link_costs
+summary = result.score_summary()
 ```
 
 ## Reference example
