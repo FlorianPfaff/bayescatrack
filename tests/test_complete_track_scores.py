@@ -9,6 +9,8 @@ from bayescatrack.evaluation.complete_track_scores import (
     score_track_matrices,
     track_lengths,
 )
+from bayescatrack.evaluation.track2p_metrics import score_track_matrix_against_reference
+from bayescatrack.reference import Track2pReference
 
 
 def test_complete_track_and_pairwise_scoring():
@@ -48,6 +50,21 @@ def test_complete_track_and_pairwise_scoring():
     assert scores["complete_tracks"] == 2
     assert scores["mean_track_length"] == pytest.approx(8 / 3)
     np.testing.assert_array_equal(track_lengths(predicted), np.array([3, 2, 3]))
+
+
+def test_track2p_reference_scoring_can_filter_curated_rows():
+    reference = Track2pReference(
+        session_names=("day0", "day1", "day2"),
+        suite2p_indices=np.array([[0, 10, 20], [1, 11, 21]], dtype=object),
+        curated_mask=np.array([True, False]),
+    )
+    predicted = np.array([[0, 10, 20], [1, 11, 21]], dtype=object)
+
+    scores = score_track_matrix_against_reference(predicted, reference, curated_only=True)
+
+    assert scores["complete_track_precision"] == pytest.approx(0.5)
+    assert scores["complete_track_recall"] == pytest.approx(1.0)
+    assert scores["reference_complete_tracks"] == 1
 
 
 def test_score_track_matrices_requires_same_number_of_sessions():
