@@ -55,6 +55,12 @@ def _write_aligned_subject(subject_dir, write_raw_npy_session):
     _write_subject_sessions(subject_dir, write_raw_npy_session)
 
 
+def _write_ground_truth_subject(subject_dir, write_raw_npy_session):
+    session_names = _write_subject_sessions(subject_dir, write_raw_npy_session)
+    lines = ["track_id," + ",".join(session_names), "0,0,0,0", "1,1,1,1"]
+    (subject_dir / "ground_truth.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _install_fake_pyrecest(monkeypatch):
     fake_pyrecest = types.ModuleType("pyrecest")
     fake_utils = types.ModuleType("pyrecest.utils")
@@ -149,6 +155,18 @@ def test_loso_calibration_uses_aligned_rows_when_track2p_reference_is_absent(tmp
     assert [result.subject for result in results] == ["jm001", "jm002"]
     assert {result.reference_source for result in results} == {"aligned_subject_rows"}
     assert [result.to_dict()["pairwise_f1"] for result in results] == [pytest.approx(1.0), pytest.approx(1.0)]
+
+
+def test_loso_calibration_uses_ground_truth_csv_when_present(tmp_path, monkeypatch, write_raw_npy_session):
+    results = _run_loso_calibration(
+        tmp_path,
+        monkeypatch,
+        lambda subject_dir: _write_ground_truth_subject(subject_dir, write_raw_npy_session),
+    )
+
+    assert [result.subject for result in results] == ["jm001", "jm002"]
+    assert {result.reference_source for result in results} == {"ground_truth_csv"}
+    assert [result.to_dict()["complete_track_f1"] for result in results] == [pytest.approx(1.0), pytest.approx(1.0)]
 
 
 def test_loso_calibration_requires_calibrated_cost(tmp_path, write_raw_npy_session):

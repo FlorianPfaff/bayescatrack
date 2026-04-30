@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -41,6 +42,33 @@ def _write_subject(subject_dir, write_raw_npy_session, *, write_reference=True):
         allow_pickle=True,
     )
     np.save(track2p_dir / "plane0_suite2p_indices.npy", np.array([[0, 0, 0], [1, 1, 1]], dtype=object), allow_pickle=True)
+
+
+def _write_ground_truth_csv(subject_dir: Path, session_names: tuple[str, ...], rows: tuple[tuple[int, ...], ...]) -> Path:
+    ground_truth_path = subject_dir / "ground_truth.csv"
+    lines = ["track_id," + ",".join(session_names)]
+    for track_id, row in enumerate(rows):
+        lines.append(f"{track_id}," + ",".join(str(value) for value in row))
+    ground_truth_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return ground_truth_path
+
+
+def _write_suite2p_session(subject_dir: Path, session_name: str, *, iscell: np.ndarray) -> Path:
+    plane_dir = subject_dir / session_name / "suite2p" / "plane0"
+    plane_dir.mkdir(parents=True, exist_ok=True)
+    stat = np.array(
+        [
+            {"ypix": np.array([0, 0]), "xpix": np.array([0, 1]), "lam": np.ones(2), "overlap": np.zeros(2, dtype=bool)},
+            {"ypix": np.array([1, 1]), "xpix": np.array([0, 1]), "lam": np.ones(2), "overlap": np.zeros(2, dtype=bool)},
+            {"ypix": np.array([2, 2]), "xpix": np.array([0, 1]), "lam": np.ones(2), "overlap": np.zeros(2, dtype=bool)},
+        ],
+        dtype=object,
+    )
+    np.save(plane_dir / "stat.npy", stat, allow_pickle=True)
+    np.save(plane_dir / "iscell.npy", iscell)
+    np.save(plane_dir / "ops.npy", {"Ly": 4, "Lx": 4, "meanImg": np.zeros((4, 4), dtype=float)}, allow_pickle=True)
+    np.save(plane_dir / "F.npy", np.arange(6, dtype=float).reshape(3, 2))
+    return plane_dir
 
 
 def _install_fake_multisession_assignment(monkeypatch):
@@ -93,6 +121,53 @@ def test_track2p_baseline_benchmark_scores_aligned_rows_without_track2p_output(t
     assert result["reference_source"] == "aligned_subject_rows"
     assert result["pairwise_f1"] == pytest.approx(1.0)
     assert result["complete_track_f1"] == pytest.approx(1.0)
+
+
+def test_benchmark_uses_ground_truth_csv_reference(tmp_path, write_raw_npy_session):
+    subject_dir = tmp_path / "jm001"
+    _write_subject(subject_dir, write_raw_npy_session, write_reference=False)
+    _write_ground_truth_csv(
+        subject_dir,
+        ("2024-05-01_a", "2024-05-02_a", "2024-05-03_a"),
+        ((0, 0, 0), (1, 1, 1)),
+    )
+
+    rows = run_track2p_benchmark(Track2pBenchmarkConfig(data=tmp_path, method="track2p-baseline"))
+
+    result = rows[0].to_dict()
+    assert result["reference_source"] == "ground_truth_csv"
+    assert result["pairwise_f1"] == pytest.approx(1.0)
+    assert result["complete_track_f1"] == pytest.approx(1.0)
+
+
+def test_ground_truth_csv_validation_catches_filtered_stat_rows(tmp_path):
+    subject_dir = tmp_path / "jm003"
+    iscell = np.array([[1.0, 0.95], [0.0, 0.1], [1.0, 0.9]], dtype=float)
+    _write_suite2p_session(subject_dir, "2024-05-01_a", iscell=iscell)
+    _write_suite2p_session(subject_dir, "2024-05-02_a", iscell=iscell)
+    _write_ground_truth_csv(subject_dir, ("2024-05-01_a", "2024-05-02_a"), ((0, 0), (1, 1)))
+
+    config = Track2pBenchmarkConfig(
+        data=subject_dir,
+        method="track2p-baseline",
+        input_format="suite2p",
+    )
+    with pytest.raises(ValueError, match="--include-non-cells"):
+        run_track2p_benchmark(config)
+
+    rows = run_track2p_benchmark(
+        Track2pBenchmarkConfig(
+            data=subject_dir,
+            method="track2p-baseline",
+            input_format="suite2p",
+            include_non_cells=True,
+        )
+    )
+
+    result = rows[0].to_dict()
+    assert result["reference_source"] == "ground_truth_csv"
+    assert result["pairwise_recall"] == pytest.approx(1.0)
+    assert result["pairwise_precision"] == pytest.approx(2 / 3)
 
 
 def test_global_assignment_benchmark_uses_skip_edges(tmp_path, monkeypatch, write_raw_npy_session):

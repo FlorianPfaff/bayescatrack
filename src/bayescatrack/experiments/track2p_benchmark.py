@@ -22,11 +22,14 @@ from bayescatrack.association.pyrecest_global_assignment import (
 )
 from bayescatrack.core.bridge import Track2pSession, find_track2p_session_dirs, load_track2p_subject
 from bayescatrack.evaluation.track2p_metrics import normalize_track_matrix, score_track_matrices
+from bayescatrack.ground_truth_eval import load_track2p_ground_truth_csv
 from bayescatrack.reference import Track2pReference, load_aligned_subject_reference, load_track2p_reference
 
 BenchmarkMethod = Literal["track2p-baseline", "global-assignment"]
 BenchmarkSplit = Literal["subject", "leave-one-subject-out"]
 OutputFormat = Literal["table", "json", "csv"]
+GROUND_TRUTH_CSV_NAME = "ground_truth.csv"
+GROUND_TRUTH_REFERENCE_SOURCE = "ground_truth_csv"
 
 
 # pylint: disable=too-many-instance-attributes
@@ -123,6 +126,11 @@ def run_track2p_benchmark(config: Track2pBenchmarkConfig) -> list[SubjectBenchma
     for subject_dir in subject_dirs:
         progress.step(f"running {subject_dir.name}")
         reference = _load_reference_for_subject(subject_dir, data_root=config.data, config=config)
+        if reference.source == GROUND_TRUTH_REFERENCE_SOURCE:
+            _validate_reference_roi_indices(
+                reference,
+                _load_subject_sessions(subject_dir, config),
+            )
         reference_matrix = _reference_matrix(reference, curated_only=config.curated_only)
         predicted_matrix, variant = _predict_subject_tracks(subject_dir, config)
         scores = score_track_matrices(predicted_matrix, reference_matrix)
@@ -216,7 +224,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--reference",
         type=Path,
         default=None,
-        help="Optional ground-truth root, subject directory, or track2p folder",
+        help="Optional ground_truth.csv file, ground-truth root, subject directory, or track2p folder",
     )
     parser.add_argument("--curated-only", action="store_true", help="Evaluate only reference tracks marked curated")
     parser.add_argument(
@@ -292,19 +300,15 @@ def _predict_subject_tracks(subject_dir: Path, config: Track2pBenchmarkConfig) -
                 subject_dir,
                 plane_name=config.plane_name,
                 input_format=config.input_format,
+                include_behavior=config.include_behavior,
+                include_non_cells=config.include_non_cells,
+                cell_probability_threshold=config.cell_probability_threshold,
+                weighted_masks=config.weighted_masks,
+                exclude_overlapping_pixels=config.exclude_overlapping_pixels,
             )
         return normalize_track_matrix(baseline.suite2p_indices), "Track2p default"
 
-    sessions = load_track2p_subject(
-        subject_dir,
-        plane_name=config.plane_name,
-        input_format=config.input_format,
-        include_behavior=config.include_behavior,
-        include_non_cells=config.include_non_cells,
-        cell_probability_threshold=config.cell_probability_threshold,
-        weighted_masks=config.weighted_masks,
-        exclude_overlapping_pixels=config.exclude_overlapping_pixels,
-    )
+    sessions = _load_subject_sessions(subject_dir, config)
     assignment = solve_configured_global_assignment(sessions, config)
     predicted = tracks_to_suite2p_index_matrix(assignment.result.tracks, sessions)
     return predicted, _variant_name(config.cost)
@@ -346,30 +350,160 @@ def _variant_name(cost: AssociationCost) -> str:
 
 
 def _load_reference_for_subject(subject_dir: Path, *, data_root: Path, config: Track2pBenchmarkConfig) -> Track2pReference:
+    data_root = Path(data_root)
     if config.reference is None:
+        ground_truth_path = subject_dir / GROUND_TRUTH_CSV_NAME
+        if ground_truth_path.exists():
+            return _load_ground_truth_csv_reference(ground_truth_path, subject_dir=subject_dir)
         track2p_dir = subject_dir / "track2p"
         if track2p_dir.exists():
             return load_track2p_reference(track2p_dir, plane_name=config.plane_name)
-        return load_aligned_subject_reference(subject_dir, plane_name=config.plane_name, input_format=config.input_format)
+        return _load_aligned_reference_for_config(subject_dir, config)
 
-    reference_path = _resolve_reference_path(subject_dir, data_root=data_root, reference_root=config.reference)
+    reference_root = Path(config.reference)
+    ground_truth_path = _resolve_ground_truth_csv_path(subject_dir, data_root=data_root, reference_root=reference_root)
+    if ground_truth_path is not None:
+        return _load_ground_truth_csv_reference(ground_truth_path, subject_dir=subject_dir)
+
+    reference_path = _resolve_track2p_reference_path(subject_dir, data_root=data_root, reference_root=reference_root)
     if reference_path is not None:
         return load_track2p_reference(reference_path, plane_name=config.plane_name)
-    return load_aligned_subject_reference(subject_dir, plane_name=config.plane_name, input_format=config.input_format)
+    return _load_aligned_reference_for_config(subject_dir, config)
 
 
-def _resolve_reference_path(subject_dir: Path, *, data_root: Path, reference_root: Path) -> Path | None:
-    del data_root
+def _resolve_ground_truth_csv_path(subject_dir: Path, *, data_root: Path, reference_root: Path) -> Path | None:
+    candidates: list[Path] = []
+    if reference_root.is_file():
+        candidates.append(reference_root)
+    else:
+        candidates.extend(
+            [
+                reference_root / GROUND_TRUTH_CSV_NAME,
+                reference_root / subject_dir.name / GROUND_TRUTH_CSV_NAME,
+            ]
+        )
+        try:
+            relative_subject = subject_dir.relative_to(data_root)
+        except ValueError:
+            relative_subject = None
+        if relative_subject is not None:
+            candidates.append(reference_root / relative_subject / GROUND_TRUTH_CSV_NAME)
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file() and candidate.name.casefold() == GROUND_TRUTH_CSV_NAME:
+            return candidate
+    return None
+
+
+def _resolve_track2p_reference_path(subject_dir: Path, *, data_root: Path, reference_root: Path) -> Path | None:
     candidates = [
         reference_root,
         reference_root / subject_dir.name,
         reference_root / subject_dir.name / "track2p",
         reference_root / "track2p",
     ]
+    try:
+        relative_subject = subject_dir.relative_to(data_root)
+    except ValueError:
+        relative_subject = None
+    if relative_subject is not None:
+        candidates.extend(
+            [
+                reference_root / relative_subject,
+                reference_root / relative_subject / "track2p",
+            ]
+        )
     for candidate in candidates:
         if (candidate / "track_ops.npy").exists() or (candidate / "track2p" / "track_ops.npy").exists():
             return candidate
     return None
+
+
+def _load_ground_truth_csv_reference(ground_truth_path: Path, *, subject_dir: Path) -> Track2pReference:
+    session_names = tuple(session_dir.name for session_dir in find_track2p_session_dirs(subject_dir))
+    if not session_names:
+        raise ValueError(f"No Track2p-style sessions were found for ground-truth reference {ground_truth_path}")
+
+    track_table = load_track2p_ground_truth_csv(ground_truth_path)
+    if track_table.session_names != session_names:
+        if set(track_table.session_names) != set(session_names):
+            raise ValueError(
+                f"{ground_truth_path} session columns {track_table.session_names!r} do not match subject sessions {session_names!r}"
+            )
+        track_table = track_table.aligned_to(session_names)
+
+    return Track2pReference(
+        session_names=track_table.session_names,
+        suite2p_indices=track_table.tracks,
+        curated_mask=np.ones((track_table.n_tracks,), dtype=bool),
+        source=GROUND_TRUTH_REFERENCE_SOURCE,
+    )
+
+
+def _load_aligned_reference_for_config(subject_dir: Path, config: Track2pBenchmarkConfig) -> Track2pReference:
+    return load_aligned_subject_reference(
+        subject_dir,
+        plane_name=config.plane_name,
+        input_format=config.input_format,
+        include_behavior=config.include_behavior,
+        include_non_cells=config.include_non_cells,
+        cell_probability_threshold=config.cell_probability_threshold,
+        weighted_masks=config.weighted_masks,
+        exclude_overlapping_pixels=config.exclude_overlapping_pixels,
+    )
+
+
+def _load_subject_sessions(subject_dir: Path, config: Track2pBenchmarkConfig) -> list[Track2pSession]:
+    return load_track2p_subject(
+        subject_dir,
+        plane_name=config.plane_name,
+        input_format=config.input_format,
+        include_behavior=config.include_behavior,
+        include_non_cells=config.include_non_cells,
+        cell_probability_threshold=config.cell_probability_threshold,
+        weighted_masks=config.weighted_masks,
+        exclude_overlapping_pixels=config.exclude_overlapping_pixels,
+    )
+
+
+def _validate_reference_roi_indices(reference: Track2pReference, sessions: Sequence[Track2pSession]) -> None:
+    sessions = tuple(sessions)
+    if len(sessions) != reference.n_sessions:
+        raise ValueError(
+            f"Reference {reference.source!r} has {reference.n_sessions} sessions, but the loaded subject has {len(sessions)} sessions"
+        )
+
+    session_names = tuple(session.session_name for session in sessions)
+    if session_names != reference.session_names:
+        raise ValueError(
+            f"Reference {reference.source!r} session order {reference.session_names!r} does not match loaded sessions {session_names!r}"
+        )
+
+    for session_index, session in enumerate(sessions):
+        available_indices = _loaded_suite2p_index_set(session)
+        referenced_indices = {
+            int(value)
+            for value in reference.suite2p_indices[:, session_index]
+            if value is not None
+        }
+        missing_indices = sorted(referenced_indices - available_indices)
+        if missing_indices:
+            preview = ", ".join(str(value) for value in missing_indices[:10])
+            suffix = "" if len(missing_indices) <= 10 else f", ... ({len(missing_indices)} total)"
+            raise ValueError(
+                "Reference ROI indices are absent from loaded session "
+                f"{session.session_name!r}: {preview}{suffix}. "
+                "This usually means the reference uses Suite2p stat.npy row indices, "
+                "but the benchmark loaded a filtered ROI set. Re-run with --include-non-cells "
+                "or adjust --cell-probability-threshold if this is intentional."
+            )
+
+
+def _loaded_suite2p_index_set(session: Track2pSession) -> set[int]:
+    roi_indices = session.plane_data.roi_indices
+    if roi_indices is None:
+        return set(range(session.plane_data.n_rois))
+    return {int(value) for value in np.asarray(roi_indices, dtype=int).reshape(-1)}
 
 
 def _reference_matrix(reference: Track2pReference, *, curated_only: bool) -> np.ndarray:

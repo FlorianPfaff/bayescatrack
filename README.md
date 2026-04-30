@@ -76,6 +76,13 @@ python -m bayescatrack benchmark track2p \
   --method track2p-baseline
 ```
 
+If a subject directory contains `ground_truth.csv`, the benchmark uses it as
+the reference. You can also point `--reference` at a `ground_truth.csv` file or
+at a separate ground-truth root. Ground-truth ROI indices are validated against
+the loaded Suite2p ROI indices, so references that use raw `stat.npy` row
+indices will fail clearly if Suite2p cell filtering removed any referenced ROI;
+use `--include-non-cells` when benchmarking against all `stat.npy` rows.
+
 Run the clean global-assignment ablation with registered IoU costs and skip edges:
 
 ```bash

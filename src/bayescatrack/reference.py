@@ -249,10 +249,18 @@ def load_aligned_subject_reference(
     *,
     plane_name: str = "plane0",
     input_format: str = "auto",
+    include_behavior: bool = True,
+    **suite2p_kwargs: Any,
 ) -> Track2pReference:
     """Build a reference from already row-aligned matched Suite2p sessions."""
 
-    sessions = load_track2p_subject(subject_dir, plane_name=plane_name, input_format=input_format)
+    sessions = load_track2p_subject(
+        subject_dir,
+        plane_name=plane_name,
+        input_format=input_format,
+        include_behavior=include_behavior,
+        **suite2p_kwargs,
+    )
     if not sessions:
         raise ValueError("No sessions were found")
 

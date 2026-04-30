@@ -19,16 +19,20 @@ from bayescatrack.association.pyrecest_global_assignment import (
     session_edge_pairs,
     tracks_to_suite2p_index_matrix,
 )
-from bayescatrack.core.bridge import Track2pSession, load_track2p_subject
+from bayescatrack.core.bridge import Track2pSession
 from bayescatrack.evaluation.complete_track_scores import normalize_track_matrix, score_track_matrices
 from bayescatrack.experiments.track2p_benchmark import (
+    GROUND_TRUTH_REFERENCE_SOURCE,
     ProgressReporter,
     SubjectBenchmarkResult,
     Track2pBenchmarkConfig,
     discover_subject_dirs,
+    _load_reference_for_subject,
+    _load_subject_sessions,
+    _validate_reference_roi_indices,
     solve_configured_global_assignment,
 )
-from bayescatrack.reference import Track2pReference, load_aligned_subject_reference, load_track2p_reference
+from bayescatrack.reference import Track2pReference
 
 
 @dataclass(frozen=True)
@@ -163,50 +167,16 @@ def run_track2p_loso_calibration(
 
 
 def _load_subject_calibration_data(subject_dir: Path, *, config: Track2pBenchmarkConfig) -> SubjectCalibrationData:
-    sessions = tuple(
-        load_track2p_subject(
-            subject_dir,
-            plane_name=config.plane_name,
-            input_format=config.input_format,
-            include_behavior=config.include_behavior,
-            include_non_cells=config.include_non_cells,
-            cell_probability_threshold=config.cell_probability_threshold,
-            weighted_masks=config.weighted_masks,
-            exclude_overlapping_pixels=config.exclude_overlapping_pixels,
-        )
-    )
-    reference = _load_training_reference(subject_dir, config=config)
+    sessions = tuple(_load_subject_sessions(subject_dir, config))
+    reference = _load_reference_for_subject(subject_dir, data_root=config.data, config=config)
+    if reference.source == GROUND_TRUTH_REFERENCE_SOURCE:
+        _validate_reference_roi_indices(reference, sessions)
     if len(sessions) != reference.n_sessions:
         raise ValueError(
             f"Subject {subject_dir.name!r} has {len(sessions)} loaded sessions but "
             f"{reference.n_sessions} reference sessions"
         )
     return SubjectCalibrationData(subject_dir=subject_dir, sessions=sessions, reference=reference)
-
-
-def _load_training_reference(subject_dir: Path, *, config: Track2pBenchmarkConfig) -> Track2pReference:
-    if config.reference is None:
-        if not (subject_dir / "track2p" / "track_ops.npy").exists():
-            return load_aligned_subject_reference(
-                subject_dir,
-                plane_name=config.plane_name,
-                input_format=config.input_format,
-            )
-        return load_track2p_reference(subject_dir / "track2p", plane_name=config.plane_name)
-
-    for candidate in _reference_candidates(subject_dir, config.reference):
-        if (candidate / "track_ops.npy").exists() or (candidate / "track2p" / "track_ops.npy").exists():
-            return load_track2p_reference(candidate, plane_name=config.plane_name)
-    raise FileNotFoundError(f"Could not find Track2p reference for subject {subject_dir.name!r}")
-
-
-def _reference_candidates(subject_dir: Path, reference_root: Path) -> tuple[Path, ...]:
-    return (
-        reference_root,
-        reference_root / subject_dir.name,
-        reference_root / subject_dir.name / "track2p",
-        reference_root / "track2p",
-    )
 
 
 # pylint: disable=too-many-arguments
