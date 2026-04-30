@@ -352,9 +352,9 @@ def _variant_name(cost: AssociationCost) -> str:
 def _load_reference_for_subject(subject_dir: Path, *, data_root: Path, config: Track2pBenchmarkConfig) -> Track2pReference:
     data_root = Path(data_root)
     if config.reference is None:
-        ground_truth_path = subject_dir / GROUND_TRUTH_CSV_NAME
-        if ground_truth_path.exists():
-            return _load_ground_truth_csv_reference(ground_truth_path, subject_dir=subject_dir)
+        default_ground_truth_path = subject_dir / GROUND_TRUTH_CSV_NAME
+        if default_ground_truth_path.exists():
+            return _load_ground_truth_csv_reference(default_ground_truth_path, subject_dir=subject_dir)
         track2p_dir = subject_dir / "track2p"
         if track2p_dir.exists():
             return load_track2p_reference(track2p_dir, plane_name=config.plane_name)
@@ -382,6 +382,7 @@ def _resolve_ground_truth_csv_path(subject_dir: Path, *, data_root: Path, refere
                 reference_root / subject_dir.name / GROUND_TRUTH_CSV_NAME,
             ]
         )
+        relative_subject: Path | None
         try:
             relative_subject = subject_dir.relative_to(data_root)
         except ValueError:
@@ -402,6 +403,7 @@ def _resolve_track2p_reference_path(subject_dir: Path, *, data_root: Path, refer
         reference_root / subject_dir.name / "track2p",
         reference_root / "track2p",
     ]
+    relative_subject: Path | None
     try:
         relative_subject = subject_dir.relative_to(data_root)
     except ValueError:
