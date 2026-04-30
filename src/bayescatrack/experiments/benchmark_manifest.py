@@ -27,7 +27,7 @@ from bayescatrack.experiments.track2p_benchmark import (
 ManifestObject = Mapping[str, Any]
 TRACK2P_CONFIG_FIELDS = {field.name for field in fields(Track2pBenchmarkConfig)}
 RUN_METADATA_FIELDS = {"name", "output", "format"}
-COMPARISON_FIELDS = {"name", "inputs", "output", "format"}
+COMPARISON_FIELDS = {"name", "inputs", "output", "format", "highlight_best"}
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,7 @@ class BenchmarkComparisonSpec:
     inputs: Mapping[str, str]
     output: Path
     output_format: str = "markdown"
+    highlight_best: bool = False
 
 
 @dataclass(frozen=True)
@@ -162,7 +163,12 @@ def run_benchmark_manifest(manifest: BenchmarkManifest) -> BenchmarkManifestResu
             comparison_spec, run_outputs=run_outputs, manifest_path=manifest.path
         )
         rows = aggregate_rows(load_labeled_rows(comparison_inputs))
-        write_comparison(rows, comparison_spec.output, comparison_spec.output_format)
+        write_comparison(
+            rows,
+            comparison_spec.output,
+            comparison_spec.output_format,
+            highlight_best=comparison_spec.highlight_best,
+        )
         comparison_summaries.append(
             BenchmarkOutputSummary(
                 name=comparison_spec.name,
@@ -275,8 +281,15 @@ def _parse_comparison_spec(
         default_name=f"{_slugify(name)}.{_comparison_output_suffix(output_format)}",
         output_base_dir=output_base_dir,
     )
+    raw_highlight_best = raw_comparison.get("highlight_best", False)
+    if not isinstance(raw_highlight_best, bool):
+        raise ValueError("Manifest comparison 'highlight_best' must be a boolean")
     return BenchmarkComparisonSpec(
-        name=name, inputs=comparison_inputs, output=output, output_format=output_format
+        name=name,
+        inputs=comparison_inputs,
+        output=output,
+        output_format=output_format,
+        highlight_best=raw_highlight_best,
     )
 
 
