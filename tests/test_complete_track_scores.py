@@ -4,8 +4,10 @@ import pytest
 from bayescatrack.evaluation.complete_track_scores import (
     complete_track_set,
     pairwise_track_set,
+    reference_fragment_counts,
     score_complete_tracks,
     score_false_continuations,
+    score_fragmentation,
     score_pairwise_tracks,
     score_track_matrices,
     track_lengths,
@@ -51,7 +53,58 @@ def test_complete_track_and_pairwise_scoring():
     scores = score_track_matrices(predicted, reference)
     assert scores["complete_tracks"] == 2
     assert scores["mean_track_length"] == pytest.approx(8 / 3)
+    assert scores["fragmentation_events"] == 0
     np.testing.assert_array_equal(track_lengths(predicted), np.array([3, 2, 3]))
+
+
+def test_fragmentation_scores_reference_identities_split_across_predicted_tracks():
+    reference = np.array(
+        [
+            [0, 10, 20],
+            [1, 11, 21],
+            [2, None, 22],
+        ],
+        dtype=object,
+    )
+    predicted = np.array(
+        [
+            [0, 10, None],
+            [None, None, 20],
+            [1, 11, 21],
+            [3, 13, 23],
+        ],
+        dtype=object,
+    )
+
+    np.testing.assert_array_equal(reference_fragment_counts(predicted, reference), np.array([2, 1, 0]))
+
+    scores = score_fragmentation(predicted, reference)
+    assert scores["fragmentation_reference_tracks"] == 3
+    assert scores["fragmentation_covered_reference_tracks"] == 2
+    assert scores["fragmentation_fragmented_reference_tracks"] == 1
+    assert scores["fragmentation_fragments"] == 3
+    assert scores["fragmentation_events"] == 1
+    assert scores["fragmentation_rate"] == pytest.approx(1 / 3)
+    assert scores["fragmentation_covered_rate"] == pytest.approx(1 / 2)
+    assert scores["fragmentation_mean_fragments_per_reference_track"] == pytest.approx(1.0)
+    assert scores["fragmentation_mean_fragments_per_covered_reference_track"] == pytest.approx(1.5)
+    assert scores["fragmentation_max_fragments_per_reference_track"] == 2
+
+    matrix_scores = score_track_matrices(predicted, reference)
+    assert matrix_scores["fragmentation_events"] == 1
+    assert matrix_scores["fragmentation_rate"] == pytest.approx(1 / 3)
+
+
+def test_fragmentation_scores_ignore_empty_reference_rows():
+    reference = np.array([[None, None], [0, 1]], dtype=object)
+    predicted = np.array([[0, 1]], dtype=object)
+
+    scores = score_fragmentation(predicted, reference)
+
+    assert scores["fragmentation_reference_tracks"] == 1
+    assert scores["fragmentation_covered_reference_tracks"] == 1
+    assert scores["fragmentation_events"] == 0
+    assert scores["fragmentation_rate"] == pytest.approx(0.0)
 
 
 def test_false_continuation_rate_counts_labeled_wrong_continuations():
