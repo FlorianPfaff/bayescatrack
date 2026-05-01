@@ -1,11 +1,16 @@
 """Evaluation helpers for BayesCaTrack benchmarks."""
 
+from . import calibration_diagnostics as _calibration_diagnostics
 from . import complete_track_scores as _scores
 from . import track2p_metrics as _track2p_metrics
 
+brier_score = _calibration_diagnostics.brier_score
+calibration_summary = _calibration_diagnostics.calibration_summary
 complete_track_set = _scores.complete_track_set
+format_reliability_bin_table = _calibration_diagnostics.format_reliability_bin_table
 normalize_track_matrix = _scores.normalize_track_matrix
 pairwise_track_set = _scores.pairwise_track_set
+reliability_bin_table = _calibration_diagnostics.reliability_bin_table
 score_complete_tracks = _scores.score_complete_tracks
 score_false_continuations = _scores.score_false_continuations
 score_pairwise_tracks = _scores.score_pairwise_tracks
@@ -14,4 +19,6 @@ summarize_tracks = _scores.summarize_tracks
 track_lengths = _scores.track_lengths
 score_track_matrix_against_reference = _track2p_metrics.score_track_matrix_against_reference
 
-__all__ = list(_scores.__all__) + ["score_track_matrix_against_reference"]
+__all__ = list(_calibration_diagnostics.__all__) + list(_scores.__all__) + [
+    "score_track_matrix_against_reference",
+]

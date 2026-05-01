@@ -48,6 +48,31 @@ class CalibratedAssociationModel:
     def pairwise_cost_matrix_from_bundle(self, bundle: SessionAssociationBundle) -> np.ndarray:
         return self.pairwise_cost_matrix_from_components(pairwise_components_from_bundle(bundle))
 
+    def pairwise_probability_matrix_from_components(self, pairwise_components: Mapping[str, Any]) -> np.ndarray:
+        """Convert pairwise components into calibrated match probabilities."""
+
+        features = pairwise_feature_tensor(pairwise_components, feature_names=self.feature_names)
+        return self.predict_match_probability(features)
+
+    def pairwise_probability_matrix_from_bundle(self, bundle: SessionAssociationBundle) -> np.ndarray:
+        """Convert a full association bundle into calibrated match probabilities."""
+
+        return self.pairwise_probability_matrix_from_components(pairwise_components_from_bundle(bundle))
+
+    def predict_match_probability(self, features: Any) -> np.ndarray:
+        """Return calibrated match probabilities for feature vectors or pairwise tensors."""
+
+        if hasattr(self.model, "predict_match_probability"):
+            probabilities = self.model.predict_match_probability(features)
+        elif hasattr(self.model, "predict_proba"):
+            probabilities = np.asarray(self.model.predict_proba(features), dtype=float)
+            if probabilities.ndim >= 1 and probabilities.shape[-1] == 2:
+                probabilities = probabilities[..., 1]
+        else:
+            costs = np.asarray(self.model.pairwise_cost_matrix(features), dtype=float)
+            probabilities = np.exp(-costs)
+        return np.clip(np.asarray(probabilities, dtype=float), 0.0, 1.0)
+
 
 @dataclass(frozen=True)
 # pylint: disable=too-many-instance-attributes
