@@ -27,12 +27,14 @@ def pairwise_components_from_bundle(
     bundle: Any,
     *,
     covariance_epsilon: float = 1.0e-6,
+    session_gap: int | float = 1.0,
 ) -> dict[str, np.ndarray]:
-    """Return calibrated components with Mahalanobis features guaranteed present."""
+    """Return calibrated components with Mahalanobis and session-gap features guaranteed present."""
 
     components = _ORIGINAL_PAIRWISE_COMPONENTS_FROM_BUNDLE(
         bundle,
         covariance_epsilon=covariance_epsilon,
+        session_gap=session_gap,
     )
     if "mahalanobis_centroid_distance" in components:
         components.setdefault(
