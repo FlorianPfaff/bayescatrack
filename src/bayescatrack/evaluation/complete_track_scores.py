@@ -14,8 +14,10 @@ __all__ = (
     "complete_track_set",
     "normalize_track_matrix",
     "pairwise_track_set",
+    "reference_fragment_counts",
     "score_complete_tracks",
     "score_false_continuations",
+    "score_fragmentation",
     "score_pairwise_tracks",
     "score_track_matrices",
     "summarize_tracks",
@@ -69,6 +71,35 @@ def pairwise_track_set(
             if roi_a is not None and roi_b is not None:
                 links.add((int(session_a), int(session_b), int(roi_a), int(roi_b)))
     return links
+
+
+def reference_fragment_counts(
+    predicted_track_matrix: Any,
+    reference_track_matrix: Any,
+) -> np.ndarray:
+    """Return the number of predicted fragments covering each reference track.
+
+    A reference track is covered by a predicted fragment when any ROI in the
+    predicted row matches the reference ROI in the same session. Splitting one
+    reference identity across multiple predicted rows therefore produces a
+    fragment count greater than one. Missing sessions do not introduce extra
+    fragments; they are handled by recall/complete-track metrics.
+    """
+    predicted = normalize_track_matrix(predicted_track_matrix)
+    reference = normalize_track_matrix(reference_track_matrix)
+    if predicted.shape[1] != reference.shape[1]:
+        raise ValueError("Predicted and reference matrices must have the same number of sessions")
+
+    predicted_lookup = _predicted_track_lookup(predicted)
+    fragment_counts = np.zeros(reference.shape[0], dtype=int)
+    for reference_idx, reference_row in enumerate(reference):
+        covering_predicted_tracks: set[int] = set()
+        for session_idx, roi in enumerate(reference_row):
+            if roi is None:
+                continue
+            covering_predicted_tracks.update(predicted_lookup.get((int(session_idx), int(roi)), ()))
+        fragment_counts[reference_idx] = len(covering_predicted_tracks)
+    return fragment_counts
 
 
 def score_complete_tracks(
@@ -150,6 +181,46 @@ def score_false_continuations(
     }
 
 
+def score_fragmentation(
+    predicted_track_matrix: Any,
+    reference_track_matrix: Any,
+) -> dict[str, float | int]:
+    """Score fragmentation of reference identities across predicted tracks.
+
+    Fragmentation is measured per reference identity. A reference identity with
+    ROIs distributed across two predicted rows has two fragments and one
+    fragmentation event. Uncovered reference identities have zero fragments;
+    they affect recall metrics, but they are not counted as fragmented.
+    """
+    reference = normalize_track_matrix(reference_track_matrix)
+    fragment_counts = reference_fragment_counts(predicted_track_matrix, reference)
+    reference_lengths = track_lengths(reference)
+    valid_reference_mask = reference_lengths > 0
+    valid_fragment_counts = fragment_counts[valid_reference_mask]
+
+    reference_tracks = int(valid_fragment_counts.size)
+    covered_mask = valid_fragment_counts > 0
+    covered_reference_tracks = int(np.count_nonzero(covered_mask))
+    fragmented_reference_tracks = int(np.count_nonzero(valid_fragment_counts > 1))
+    fragmentation_events = int(np.sum(np.maximum(valid_fragment_counts - 1, 0), dtype=int))
+    fragments = int(np.sum(valid_fragment_counts, dtype=int))
+
+    return {
+        "fragmentation_reference_tracks": reference_tracks,
+        "fragmentation_covered_reference_tracks": covered_reference_tracks,
+        "fragmentation_fragmented_reference_tracks": fragmented_reference_tracks,
+        "fragmentation_fragments": fragments,
+        "fragmentation_events": fragmentation_events,
+        "fragmentation_rate": _zero_ratio(fragmented_reference_tracks, reference_tracks),
+        "fragmentation_covered_rate": _zero_ratio(fragmented_reference_tracks, covered_reference_tracks),
+        "fragmentation_mean_fragments_per_reference_track": _mean_or_zero(valid_fragment_counts),
+        "fragmentation_mean_fragments_per_covered_reference_track": _mean_or_zero(valid_fragment_counts[covered_mask]),
+        "fragmentation_max_fragments_per_reference_track": (
+            int(np.max(valid_fragment_counts)) if reference_tracks else 0
+        ),
+    }
+
+
 def summarize_tracks(track_matrix: Any) -> dict[str, float | int]:
     """Summarize the number and length of predicted tracks."""
     matrix = normalize_track_matrix(track_matrix)
@@ -168,7 +239,7 @@ def score_track_matrices(
     session_pairs: Iterable[tuple[int, int]] | None = None,
     complete_session_indices: Sequence[int] | None = None,
 ) -> dict[str, float | int]:
-    """Return pairwise, complete-track, false-continuation, length, and track-error metrics."""
+    """Return pairwise, complete-track, false-continuation, fragmentation, length, and track-error metrics."""
     predicted = normalize_track_matrix(predicted_track_matrix)
     reference = normalize_track_matrix(reference_track_matrix)
     if predicted.shape[1] != reference.shape[1]:
@@ -177,6 +248,7 @@ def score_track_matrices(
     scores.update(score_pairwise_tracks(predicted, reference, session_pairs=session_pairs))
     scores.update(score_complete_tracks(predicted, reference, session_indices=complete_session_indices))
     scores.update(score_false_continuations(predicted, reference, session_pairs=session_pairs))
+    scores.update(score_fragmentation(predicted, reference))
     scores.update(summarize_tracks(predicted))
 
     from .track_error_ledger import summarize_track_errors
@@ -239,6 +311,16 @@ def _reference_roi_lookup(reference: np.ndarray) -> dict[tuple[int, int], int]:
     return lookup
 
 
+def _predicted_track_lookup(matrix: np.ndarray) -> dict[tuple[int, int], set[int]]:
+    lookup: dict[tuple[int, int], set[int]] = {}
+    for track_idx, row in enumerate(matrix):
+        for session_idx, roi in enumerate(row):
+            if roi is None:
+                continue
+            lookup.setdefault((int(session_idx), int(roi)), set()).add(int(track_idx))
+    return lookup
+
+
 def _parse_optional_int(value: Any) -> int | None:
     candidate = _optional_int_candidate(value)
     if candidate is _MISSING:
@@ -291,3 +373,7 @@ def _safe_ratio(numerator: float, denominator: float) -> float:
 
 def _zero_ratio(numerator: float, denominator: float) -> float:
     return 0.0 if denominator == 0 else float(numerator) / float(denominator)
+
+
+def _mean_or_zero(values: np.ndarray) -> float:
+    return float(np.mean(values)) if values.size else 0.0
