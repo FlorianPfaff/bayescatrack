@@ -17,6 +17,7 @@ __all__ = (
 )
 
 
+# pylint: disable=too-many-locals
 def score_complete_tracks_at_fixed_precision(
     predicted_track_matrix: Any,
     reference_track_matrix: Any,
@@ -39,9 +40,8 @@ def score_complete_tracks_at_fixed_precision(
     if predicted_matrix.shape[1] != reference_matrix.shape[1]:
         raise ValueError("Predicted and reference matrices must have the same number of sessions")
 
-    selected_sessions = _selected_sessions(predicted_matrix, session_indices)
-    for session_idx in selected_sessions:
-        _validate_session_index(reference_matrix, session_idx)
+    selected_sessions = _resolve_session_indices(predicted_matrix.shape[1], session_indices)
+    _resolve_session_indices(reference_matrix.shape[1], selected_sessions)
 
     targets = _validate_target_precisions(target_precisions)
     if not targets:
@@ -121,18 +121,16 @@ def _score_array_for_track_matrix(matrix: np.ndarray, track_scores: Sequence[flo
     return scores
 
 
-def _selected_sessions(matrix: np.ndarray, session_indices: Sequence[int] | None) -> list[int]:
+def _resolve_session_indices(num_sessions: int, session_indices: Sequence[int] | None) -> list[int]:
     if session_indices is None:
-        return list(range(matrix.shape[1]))
-    selected = [int(session_idx) for session_idx in session_indices]
-    for session_idx in selected:
-        _validate_session_index(matrix, session_idx)
+        return list(range(num_sessions))
+    selected: list[int] = []
+    for candidate in session_indices:
+        session_idx = int(candidate)
+        if session_idx < 0 or session_idx >= num_sessions:
+            raise IndexError(f"session index {session_idx} out of bounds for {num_sessions} sessions")
+        selected.append(session_idx)
     return selected
-
-
-def _validate_session_index(matrix: np.ndarray, session_idx: int) -> None:
-    if session_idx < 0 or session_idx >= matrix.shape[1]:
-        raise IndexError(f"session index {session_idx} out of bounds for {matrix.shape[1]} sessions")
 
 
 def _validate_target_precisions(target_precisions: Sequence[float]) -> tuple[float, ...]:
