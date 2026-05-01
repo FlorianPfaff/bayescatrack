@@ -22,6 +22,7 @@ _ACTIVITY_FEATURES = {
 
 DEFAULT_ASSOCIATION_FEATURES = (
     "centroid_distance",
+    "mahalanobis_centroid_distance",
     "one_minus_iou",
     "one_minus_mask_cosine",
     "area_ratio_cost",
