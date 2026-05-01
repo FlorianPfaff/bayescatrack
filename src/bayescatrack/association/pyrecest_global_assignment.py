@@ -8,10 +8,8 @@ from typing import Any, Literal
 
 import numpy as np
 
-from bayescatrack.association.calibrated_costs import (
-    CalibratedAssociationModel,
-    calibrated_cost_matrix_from_bundle,
-)
+from bayescatrack.association.activity_similarity import add_activity_similarity_components
+from bayescatrack.association.calibrated_costs import CalibratedAssociationModel, calibrated_cost_matrix_from_bundle
 from bayescatrack.core.bridge import Track2pSession, build_session_pair_association_bundle
 from bayescatrack.track2p_registration import register_plane_pair
 
@@ -106,11 +104,15 @@ def build_registered_pairwise_costs(
             pairwise_cost_kwargs=base_cost_kwargs,
             return_pairwise_components=return_pairwise_components or cost == "calibrated",
         )
+        if return_pairwise_components or cost == "calibrated":
+            add_activity_similarity_components(
+                bundle.pairwise_components,
+                sessions[source_session].plane_data,
+                registered_measurement_plane,
+            )
         if cost == "calibrated":
             assert calibrated_model is not None
-            pairwise_costs[(source_session, target_session)] = calibrated_cost_matrix_from_bundle(
-                bundle, calibrated_model
-            )
+            pairwise_costs[(source_session, target_session)] = calibrated_cost_matrix_from_bundle(bundle, calibrated_model)
         else:
             pairwise_costs[(source_session, target_session)] = np.asarray(bundle.pairwise_cost_matrix, dtype=float)
     return pairwise_costs
