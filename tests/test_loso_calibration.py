@@ -79,6 +79,10 @@ def _install_fake_pyrecest(monkeypatch):
         def pairwise_cost_matrix(self, features):
             return np.sum(np.asarray(features, dtype=float), axis=-1)
 
+        def predict_match_probability(self, features):
+            features = np.asarray(features, dtype=float)
+            return np.full(features.shape[:-1], 0.5, dtype=float)
+
     class Result:
         def __init__(self):
             self.tracks = [{0: 0, 1: 0, 2: 0}, {0: 1, 1: 1, 2: 1}]
@@ -145,6 +149,10 @@ def test_loso_calibration_trains_on_other_subjects(tmp_path, monkeypatch, write_
         assert row["training_examples"] == 12
         assert row["positive_examples"] == 6
         assert row["negative_examples"] == 6
+        assert row["calibration_examples"] == 12
+        assert row["calibration_positive_examples"] == 6
+        assert row["calibration_negative_examples"] == 6
+        assert row["brier_score"] == pytest.approx(0.25)
 
 
 def test_loso_calibration_uses_aligned_rows_when_track2p_reference_is_absent(tmp_path, monkeypatch, write_raw_npy_session):

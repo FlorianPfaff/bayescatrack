@@ -20,17 +20,18 @@ from bayescatrack.association.pyrecest_global_assignment import (
     tracks_to_suite2p_index_matrix,
 )
 from bayescatrack.core.bridge import Track2pSession
+from bayescatrack.evaluation.calibration_metrics import brier_score
 from bayescatrack.experiments.track2p_benchmark import (
     GROUND_TRUTH_REFERENCE_SOURCE,
     ProgressReporter,
     SubjectBenchmarkResult,
     Track2pBenchmarkConfig,
-    discover_subject_dirs,
     _load_reference_for_subject,
     _load_subject_sessions,
     _score_prediction_against_reference,
     _validate_reference_for_benchmark,
     _validate_reference_roi_indices,
+    discover_subject_dirs,
     solve_configured_global_assignment,
 )
 from bayescatrack.reference import Track2pReference
@@ -106,7 +107,7 @@ def run_track2p_loso_calibration(
     if len(subject_dirs) < 2:
         raise ValueError("LOSO calibration requires at least two subject directories")
 
-    total_steps = len(subject_dirs) + len(subject_dirs) * (len(subject_dirs) + 1)
+    total_steps = len(subject_dirs) + len(subject_dirs) * (len(subject_dirs) + 2)
     progress = ProgressReporter(total_steps, enabled=config.progress, label="LOSO")
     subject_data: list[SubjectCalibrationData] = []
     for subject_dir in subject_dirs:
@@ -132,6 +133,13 @@ def run_track2p_loso_calibration(
             sample_weight=sample_weight,
             model_kwargs=model_kwargs,
         )
+        progress.step(f"scoring calibration for {held_out.subject_name}")
+        calibration_scores = _score_holdout_calibration(
+            calibrated_model,
+            held_out,
+            config=config,
+            feature_names=feature_names,
+        )
         progress.step(f"solving {held_out.subject_name}")
         assignment = solve_configured_global_assignment(
             held_out.sessions,
@@ -146,6 +154,7 @@ def run_track2p_loso_calibration(
             "training_examples": int(training_labels.shape[0]),
             "positive_examples": int(np.sum(training_labels)),
             "negative_examples": int(training_labels.shape[0] - np.sum(training_labels)),
+            **calibration_scores,
         }
         folds.append(
             LosoCalibrationFold(
@@ -165,6 +174,30 @@ def run_track2p_loso_calibration(
         )
 
     return LosoCalibrationResult(folds=tuple(folds), feature_names=feature_names, max_gap=int(config.max_gap))
+
+
+def _score_holdout_calibration(
+    calibrated_model: Any,
+    held_out: SubjectCalibrationData,
+    *,
+    config: Track2pBenchmarkConfig,
+    feature_names: Sequence[str],
+) -> dict[str, float | int]:
+    features, labels = collect_reference_training_examples(
+        held_out.sessions,
+        held_out.reference,
+        session_edges=session_edge_pairs(len(held_out.sessions), max_gap=config.max_gap),
+        options=_reference_training_options(config, feature_names),
+    )
+    probabilities = np.asarray(calibrated_model.model.predict_match_probability(features), dtype=float).reshape(-1)
+    labels = np.asarray(labels).reshape(-1)
+    positives = int(np.sum(labels))
+    return {
+        "brier_score": brier_score(probabilities, labels),
+        "calibration_examples": int(labels.shape[0]),
+        "calibration_positive_examples": positives,
+        "calibration_negative_examples": int(labels.shape[0] - positives),
+    }
 
 
 def _load_subject_calibration_data(subject_dir: Path, *, config: Track2pBenchmarkConfig) -> SubjectCalibrationData:

@@ -10,11 +10,16 @@ import numpy as np
 
 from bayescatrack.reference import Track2pReference
 
+from .calibration_metrics import brier_score
 from .complete_track_scores import *  # noqa: F401,F403
 from .complete_track_scores import __all__ as _complete_track_score_exports
 from .complete_track_scores import normalize_track_matrix, score_track_matrices
 
-__all__ = [*_complete_track_score_exports, "score_track_matrix_against_reference"]
+__all__ = [
+    *_complete_track_score_exports,
+    "brier_score",
+    "score_track_matrix_against_reference",
+]
 
 
 def score_track_matrix_against_reference(
