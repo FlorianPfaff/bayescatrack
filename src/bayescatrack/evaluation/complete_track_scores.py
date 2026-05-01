@@ -39,10 +39,14 @@ def track_lengths(track_matrix: Any) -> np.ndarray:
     matrix = normalize_track_matrix(track_matrix)
     if matrix.shape[0] == 0:
         return np.zeros((0,), dtype=int)
-    return np.asarray([sum(value is not None for value in row) for row in matrix], dtype=int)
+    return np.asarray(
+        [sum(value is not None for value in row) for row in matrix], dtype=int
+    )
 
 
-def complete_track_set(track_matrix: Any, *, session_indices: Sequence[int] | None = None) -> set[tuple[int, ...]]:
+def complete_track_set(
+    track_matrix: Any, *, session_indices: Sequence[int] | None = None
+) -> set[tuple[int, ...]]:
     """Return exact full-track tuples for tracks present in every selected session."""
     matrix = normalize_track_matrix(track_matrix)
     selected_sessions = _selected_sessions(matrix, session_indices)
@@ -78,8 +82,12 @@ def score_complete_tracks(
     session_indices: Sequence[int] | None = None,
 ) -> dict[str, float | int]:
     """Score exact complete-track recovery with precision, recall, and F1."""
-    predicted = complete_track_set(predicted_track_matrix, session_indices=session_indices)
-    reference = complete_track_set(reference_track_matrix, session_indices=session_indices)
+    predicted = complete_track_set(
+        predicted_track_matrix, session_indices=session_indices
+    )
+    reference = complete_track_set(
+        reference_track_matrix, session_indices=session_indices
+    )
     return _score_identity_sets(
         predicted,
         reference,
@@ -117,7 +125,9 @@ def score_false_continuations(
     predicted = normalize_track_matrix(predicted_track_matrix)
     reference = normalize_track_matrix(reference_track_matrix)
     if predicted.shape[1] != reference.shape[1]:
-        raise ValueError("Predicted and reference matrices must have the same number of sessions")
+        raise ValueError(
+            "Predicted and reference matrices must have the same number of sessions"
+        )
 
     reference_lookup = _reference_roi_lookup(reference)
     valid: set[tuple[int, int, int, int]] = set()
@@ -172,11 +182,21 @@ def score_track_matrices(
     predicted = normalize_track_matrix(predicted_track_matrix)
     reference = normalize_track_matrix(reference_track_matrix)
     if predicted.shape[1] != reference.shape[1]:
-        raise ValueError("Predicted and reference matrices must have the same number of sessions")
+        raise ValueError(
+            "Predicted and reference matrices must have the same number of sessions"
+        )
     scores: dict[str, float | int] = {}
-    scores.update(score_pairwise_tracks(predicted, reference, session_pairs=session_pairs))
-    scores.update(score_complete_tracks(predicted, reference, session_indices=complete_session_indices))
-    scores.update(score_false_continuations(predicted, reference, session_pairs=session_pairs))
+    scores.update(
+        score_pairwise_tracks(predicted, reference, session_pairs=session_pairs)
+    )
+    scores.update(
+        score_complete_tracks(
+            predicted, reference, session_indices=complete_session_indices
+        )
+    )
+    scores.update(
+        score_false_continuations(predicted, reference, session_pairs=session_pairs)
+    )
     scores.update(summarize_tracks(predicted))
     return scores
 
@@ -189,8 +209,12 @@ def _score_identity_sets(
     predicted_total_name: str,
     reference_total_name: str,
 ) -> dict[str, float | int]:
-    true_positives, false_positives, false_negatives = _confusion_counts(predicted, reference)
-    precision, recall, f1 = _precision_recall_f1(true_positives, false_positives, false_negatives)
+    true_positives, false_positives, false_negatives = _confusion_counts(
+        predicted, reference
+    )
+    precision, recall, f1 = _precision_recall_f1(
+        true_positives, false_positives, false_negatives
+    )
     return {
         f"{prefix}_true_positives": true_positives,
         f"{prefix}_false_positives": false_positives,
@@ -204,10 +228,16 @@ def _score_identity_sets(
 
 
 def _confusion_counts(predicted: set[Any], reference: set[Any]) -> tuple[int, int, int]:
-    return len(predicted & reference), len(predicted - reference), len(reference - predicted)
+    return (
+        len(predicted & reference),
+        len(predicted - reference),
+        len(reference - predicted),
+    )
 
 
-def _precision_recall_f1(true_positives: int, false_positives: int, false_negatives: int) -> tuple[float, float, float]:
+def _precision_recall_f1(
+    true_positives: int, false_positives: int, false_negatives: int
+) -> tuple[float, float, float]:
     precision = _safe_ratio(true_positives, true_positives + false_positives)
     recall = _safe_ratio(true_positives, true_positives + false_negatives)
     return precision, recall, _safe_ratio(2.0 * precision * recall, precision + recall)
@@ -255,15 +285,27 @@ def _optional_int_candidate(value: Any) -> Any:
     return value
 
 
-def _selected_sessions(matrix: np.ndarray, session_indices: Sequence[int] | None) -> list[int]:
-    selected = list(range(matrix.shape[1])) if session_indices is None else [int(idx) for idx in session_indices]
+def _selected_sessions(
+    matrix: np.ndarray, session_indices: Sequence[int] | None
+) -> list[int]:
+    selected = (
+        list(range(matrix.shape[1]))
+        if session_indices is None
+        else [int(idx) for idx in session_indices]
+    )
     for session_idx in selected:
         _validate_session_index(matrix, session_idx)
     return selected
 
 
-def _session_pairs(matrix: np.ndarray, session_pairs: Iterable[tuple[int, int]] | None) -> list[tuple[int, int]]:
-    pairs = [(idx, idx + 1) for idx in range(max(0, matrix.shape[1] - 1))] if session_pairs is None else list(session_pairs)
+def _session_pairs(
+    matrix: np.ndarray, session_pairs: Iterable[tuple[int, int]] | None
+) -> list[tuple[int, int]]:
+    pairs = (
+        [(idx, idx + 1) for idx in range(max(0, matrix.shape[1] - 1))]
+        if session_pairs is None
+        else list(session_pairs)
+    )
     for session_a, session_b in pairs:
         _validate_session_index(matrix, session_a)
         _validate_session_index(matrix, session_b)
@@ -274,7 +316,9 @@ def _session_pairs(matrix: np.ndarray, session_pairs: Iterable[tuple[int, int]] 
 
 def _validate_session_index(matrix: np.ndarray, session_idx: int) -> None:
     if session_idx < 0 or session_idx >= matrix.shape[1]:
-        raise IndexError(f"session index {session_idx} out of bounds for {matrix.shape[1]} sessions")
+        raise IndexError(
+            f"session index {session_idx} out of bounds for {matrix.shape[1]} sessions"
+        )
 
 
 def _safe_ratio(numerator: float, denominator: float) -> float:

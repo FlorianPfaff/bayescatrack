@@ -296,7 +296,9 @@ def tracks_from_consecutive_matches(
         start_roi_indices=start_roi_indices,
         fill_value=-1,
     )
-    return TrackTable(session_names=tuple(str(name) for name in session_names), tracks=track_rows)
+    return TrackTable(
+        session_names=tuple(str(name) for name in session_names), tracks=track_rows
+    )
 
 
 def _align_prediction_to_ground_truth(

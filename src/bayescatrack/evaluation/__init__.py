@@ -12,6 +12,8 @@ score_pairwise_tracks = _scores.score_pairwise_tracks
 score_track_matrices = _scores.score_track_matrices
 summarize_tracks = _scores.summarize_tracks
 track_lengths = _scores.track_lengths
-score_track_matrix_against_reference = _track2p_metrics.score_track_matrix_against_reference
+score_track_matrix_against_reference = (
+    _track2p_metrics.score_track_matrix_against_reference
+)
 
 __all__ = list(_scores.__all__) + ["score_track_matrix_against_reference"]

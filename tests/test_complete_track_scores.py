@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from bayescatrack.evaluation.complete_track_scores import (
     complete_track_set,
     pairwise_track_set,
@@ -10,7 +9,9 @@ from bayescatrack.evaluation.complete_track_scores import (
     score_track_matrices,
     track_lengths,
 )
-from bayescatrack.evaluation.fixed_precision import score_complete_tracks_at_fixed_precision
+from bayescatrack.evaluation.fixed_precision import (
+    score_complete_tracks_at_fixed_precision,
+)
 from bayescatrack.evaluation.track2p_metrics import score_track_matrix_against_reference
 from bayescatrack.reference import Track2pReference
 
@@ -34,7 +35,12 @@ def test_complete_track_and_pairwise_scoring():
     )
 
     assert complete_track_set(reference) == {(0, 10, 20), (1, 11, 21)}
-    assert pairwise_track_set(predicted) == {(0, 1, 0, 10), (1, 2, 10, 20), (0, 1, 3, 13), (1, 2, 13, 23)}
+    assert pairwise_track_set(predicted) == {
+        (0, 1, 0, 10),
+        (1, 2, 10, 20),
+        (0, 1, 3, 13),
+        (1, 2, 13, 23),
+    }
 
     complete_scores = score_complete_tracks(predicted, reference)
     assert complete_scores["complete_track_true_positives"] == 1
@@ -91,7 +97,9 @@ def test_false_continuation_rate_uses_requested_session_pairs():
     assert adjacent_scores["false_continuations"] == 1
     assert adjacent_scores["unknown_source_continuations"] == 1
 
-    skip_scores = score_false_continuations(predicted, reference, session_pairs=[(0, 2)])
+    skip_scores = score_false_continuations(
+        predicted, reference, session_pairs=[(0, 2)]
+    )
     assert skip_scores["valid_continuations"] == 1
     assert skip_scores["false_continuation_rate"] == pytest.approx(0.0)
 
@@ -124,33 +132,49 @@ def test_complete_tracks_at_fixed_precision_sweeps_scored_thresholds():
 
     assert scores["complete_tracks_at_fixed_precision_0_75"] == 1
     assert scores["complete_track_predictions_at_fixed_precision_0_75"] == 1
-    assert scores["complete_track_precision_at_fixed_precision_0_75"] == pytest.approx(1.0)
-    assert scores["complete_track_recall_at_fixed_precision_0_75"] == pytest.approx(1 / 3)
-    assert scores["complete_track_score_threshold_at_fixed_precision_0_75"] == pytest.approx(0.9)
+    assert scores["complete_track_precision_at_fixed_precision_0_75"] == pytest.approx(
+        1.0
+    )
+    assert scores["complete_track_recall_at_fixed_precision_0_75"] == pytest.approx(
+        1 / 3
+    )
+    assert scores[
+        "complete_track_score_threshold_at_fixed_precision_0_75"
+    ] == pytest.approx(0.9)
     assert scores["complete_tracks_at_fixed_precision_0_6"] == 2
     assert scores["complete_track_predictions_at_fixed_precision_0_6"] == 3
-    assert scores["complete_track_precision_at_fixed_precision_0_6"] == pytest.approx(2 / 3)
+    assert scores["complete_track_precision_at_fixed_precision_0_6"] == pytest.approx(
+        2 / 3
+    )
 
 
 def test_complete_tracks_at_fixed_precision_uses_all_or_nothing_without_scores():
     reference = np.array([[0, 10], [1, 11]], dtype=object)
     predicted = np.array([[0, 10], [7, 17]], dtype=object)
 
-    scores = score_complete_tracks_at_fixed_precision(predicted, reference, target_precisions=(0.9, 0.5))
+    scores = score_complete_tracks_at_fixed_precision(
+        predicted, reference, target_precisions=(0.9, 0.5)
+    )
 
     assert scores["complete_tracks_at_fixed_precision_0_9"] == 0
     assert scores["complete_track_predictions_at_fixed_precision_0_9"] == 0
-    assert scores["complete_track_score_threshold_at_fixed_precision_0_9"] == pytest.approx(float("inf"))
+    assert scores[
+        "complete_track_score_threshold_at_fixed_precision_0_9"
+    ] == pytest.approx(float("inf"))
     assert scores["complete_tracks_at_fixed_precision_0_5"] == 1
     assert scores["complete_track_predictions_at_fixed_precision_0_5"] == 2
 
 
 def test_fixed_precision_rejects_invalid_track_scores():
     with pytest.raises(ValueError, match="one score per predicted track"):
-        score_complete_tracks_at_fixed_precision(np.zeros((2, 2)), np.zeros((1, 2)), track_scores=(1.0,))
+        score_complete_tracks_at_fixed_precision(
+            np.zeros((2, 2)), np.zeros((1, 2)), track_scores=(1.0,)
+        )
 
     with pytest.raises(ValueError, match="finite"):
-        score_complete_tracks_at_fixed_precision(np.zeros((1, 2)), np.zeros((1, 2)), track_scores=(float("nan"),))
+        score_complete_tracks_at_fixed_precision(
+            np.zeros((1, 2)), np.zeros((1, 2)), track_scores=(float("nan"),)
+        )
 
 
 def test_track2p_reference_scoring_can_filter_curated_rows():
@@ -161,7 +185,9 @@ def test_track2p_reference_scoring_can_filter_curated_rows():
     )
     predicted = np.array([[0, 10, 20], [1, 11, 21]], dtype=object)
 
-    scores = score_track_matrix_against_reference(predicted, reference, curated_only=True)
+    scores = score_track_matrix_against_reference(
+        predicted, reference, curated_only=True
+    )
 
     assert scores["complete_track_precision"] == pytest.approx(0.5)
     assert scores["complete_track_recall"] == pytest.approx(1.0)
