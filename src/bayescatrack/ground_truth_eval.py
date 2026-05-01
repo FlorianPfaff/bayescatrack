@@ -157,6 +157,43 @@ def _parse_roi_value(  # pylint: disable=too-many-return-statements
     return int(number)
 
 
+def _parse_semicolon_roi_values(value: str, *, n_sessions: int) -> list[int]:
+    """Parse Track2p ground-truth rows stored as ``roi;roi;...`` strings."""
+
+    parts = str(value).strip().split(";")
+    if len(parts) < n_sessions:
+        parts.extend([""] * (n_sessions - len(parts)))
+    extra_parts = parts[n_sessions:]
+    if any(_normalize_header(part) not in _MISSING_VALUE_STRINGS for part in extra_parts):
+        raise ValueError(
+            f"semicolon-encoded track has more non-empty entries than sessions: {value!r}"
+        )
+    return [_parse_roi_value(part) for part in parts[:n_sessions]]
+
+
+def _semicolon_encoded_row(
+    headers: Sequence[str],
+    row: Mapping[str, str],
+    *,
+    n_sessions: int,
+) -> list[int] | None:
+    """Return a semicolon-encoded track row, if the CSV row uses that representation."""
+
+    data_headers = [header for header in headers if _normalize_header(header) not in _TRACK_ID_HEADERS]
+    values = [str(row.get(header, "")).strip() for header in data_headers]
+    semicolon_values = [value for value in values if ";" in value]
+    if not semicolon_values:
+        return None
+    nonempty_plain_values = [
+        value
+        for value in values
+        if ";" not in value and _normalize_header(value) not in _MISSING_VALUE_STRINGS
+    ]
+    if len(semicolon_values) == 1 and not nonempty_plain_values:
+        return _parse_semicolon_roi_values(semicolon_values[0], n_sessions=n_sessions)
+    raise ValueError("CSV row mixes semicolon-encoded tracks with per-session ROI values")
+
+
 def _rows_from_csv(csv_path: str | Path) -> tuple[list[str], list[dict[str, str]]]:
     csv_path = Path(csv_path)
     with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -248,6 +285,10 @@ def _load_wide_format(
 
     tracks = np.full((len(rows), len(session_names)), -1, dtype=int)
     for row_index, row in enumerate(rows):
+        semicolon_values = _semicolon_encoded_row(headers, row, n_sessions=len(session_names))
+        if semicolon_values is not None:
+            tracks[row_index, :] = semicolon_values
+            continue
         for session_index, session_name in enumerate(session_names):
             if session_name not in row:
                 raise ValueError(
