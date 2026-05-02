@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any, TypeAlias, cast
+
 import numpy as np
 
 from bayescatrack.association.calibrated_costs import (
@@ -9,6 +12,8 @@ from bayescatrack.association.calibrated_costs import (
     pairwise_feature_tensor,
 )
 from bayescatrack.core.bridge import CalciumPlaneData
+
+CostMatrixResult: TypeAlias = np.ndarray | tuple[np.ndarray, dict[str, np.ndarray]]
 
 
 def _plane_from_rectangles(rectangles: list[tuple[int, int, int, int]]) -> CalciumPlaneData:
@@ -18,11 +23,58 @@ def _plane_from_rectangles(rectangles: list[tuple[int, int, int, int]]) -> Calci
     return CalciumPlaneData(roi_masks=masks)
 
 
+def _mahalanobis_distances(
+    reference: CalciumPlaneData,
+    measurement: CalciumPlaneData,
+    **kwargs: Any,
+) -> np.ndarray:
+    method = cast(
+        Callable[..., np.ndarray],
+        getattr(reference, "pairwise_mahalanobis_centroid_distances"),
+    )
+    return method(measurement, **kwargs)
+
+
+def _build_pairwise_cost_matrix(
+    reference: CalciumPlaneData,
+    measurement: CalciumPlaneData,
+    **kwargs: Any,
+) -> CostMatrixResult:
+    method = cast(Callable[..., CostMatrixResult], getattr(reference, "build_pairwise_cost_matrix"))
+    return method(measurement, **kwargs)
+
+
+def _build_cost_matrix(
+    reference: CalciumPlaneData,
+    measurement: CalciumPlaneData,
+    **kwargs: Any,
+) -> np.ndarray:
+    result = _build_pairwise_cost_matrix(reference, measurement, **kwargs)
+    assert isinstance(result, np.ndarray)
+    return result
+
+
+def _build_cost_components(
+    reference: CalciumPlaneData,
+    measurement: CalciumPlaneData,
+    **kwargs: Any,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    result = _build_pairwise_cost_matrix(
+        reference,
+        measurement,
+        return_components=True,
+        **kwargs,
+    )
+    assert isinstance(result, tuple)
+    return result
+
+
 def test_pairwise_mahalanobis_centroid_distances_use_roi_covariances() -> None:
     reference = _plane_from_rectangles([(1, 1, 3, 3)])
     measurement = _plane_from_rectangles([(1, 2, 3, 4)])
 
-    distances = reference.pairwise_mahalanobis_centroid_distances(
+    distances = _mahalanobis_distances(
+        reference,
         measurement,
         regularization=0.0,
     )
@@ -35,10 +87,10 @@ def test_pairwise_cost_components_expose_mahalanobis_feature() -> None:
     reference = _plane_from_rectangles([(1, 1, 3, 3)])
     measurement = _plane_from_rectangles([(1, 2, 3, 4)])
 
-    _, components = reference.build_pairwise_cost_matrix(
+    _, components = _build_cost_components(
+        reference,
         measurement,
         mahalanobis_regularization=0.0,
-        return_components=True,
     )
 
     np.testing.assert_allclose(
@@ -61,11 +113,13 @@ def test_mahalanobis_weight_contributes_to_pairwise_cost() -> None:
     reference = _plane_from_rectangles([(1, 1, 3, 3)])
     measurement = _plane_from_rectangles([(1, 2, 3, 4)])
 
-    base_cost = reference.build_pairwise_cost_matrix(
+    base_cost = _build_cost_matrix(
+        reference,
         measurement,
         mahalanobis_regularization=0.0,
     )
-    weighted_cost = reference.build_pairwise_cost_matrix(
+    weighted_cost = _build_cost_matrix(
+        reference,
         measurement,
         mahalanobis_weight=0.5,
         mahalanobis_regularization=0.0,

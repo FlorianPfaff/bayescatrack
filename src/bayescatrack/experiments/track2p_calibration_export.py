@@ -154,7 +154,7 @@ def _held_out_rows(
         labels = np.asarray(block.labels, dtype=int)
         for row_index, reference_roi_index in enumerate(block.reference_roi_indices):
             for column_index, measurement_roi_index in enumerate(block.measurement_roi_indices):
-                row = {
+                row: dict[str, float | int | str] = {
                     "held_out_subject": subject.subject_name,
                     "training_subjects": ",".join(training_subject_names),
                     "subject": subject.subject_name,

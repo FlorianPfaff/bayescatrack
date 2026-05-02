@@ -1,0 +1,6 @@
+[MAIN]
+
+[DESIGN]
+max-args=8
+max-locals=16
+max-returns=7
