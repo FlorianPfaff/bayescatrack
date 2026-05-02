@@ -56,7 +56,7 @@ def test_calibration_inputs_are_validated():
         expected_calibration_error([], [])
     with pytest.raises(ValueError, match="finite"):
         expected_calibration_error([float("nan")], [1])
-    with pytest.raises(ValueError, match="\[0, 1\]"):
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
         expected_calibration_error([1.1], [1])
     with pytest.raises(ValueError, match="binary"):
         expected_calibration_error([0.5], [2])
