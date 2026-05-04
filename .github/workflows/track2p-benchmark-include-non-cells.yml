@@ -17,12 +17,12 @@ on:
       run_calibrated_loso:
         description: "Run calibrated leave-one-subject-out variant"
         type: boolean
-        default: true
+        default: false
         required: true
       exclude_subjects:
         description: "Comma-separated manual-GT subjects to exclude because their GT ROI index space is incompatible with the public Suite2p subset"
         type: string
-        default: jm038
+        default: jm038,jm039
         required: false
       python_version:
         description: "Python version"
@@ -92,6 +92,7 @@ jobs:
         env:
           DATA_PATH: ${{ inputs.data_path }}
           EXCLUDE_SUBJECTS: ${{ inputs.exclude_subjects }}
+          RUN_CALIBRATED_LOSO: ${{ inputs.run_calibrated_loso }}
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import os, shutil
@@ -100,6 +101,8 @@ jobs:
           root = Path(os.environ["DATA_PATH"])
           out = Path("benchmark-ground-truth-subjects")
           excluded_by_user = {name.strip() for name in os.environ.get("EXCLUDE_SUBJECTS", "").split(",") if name.strip()}
+          run_calibrated_loso = os.environ.get("RUN_CALIBRATED_LOSO", "false").lower() == "true"
+          min_subjects = 2 if run_calibrated_loso else 1
           if out.exists():
               shutil.rmtree(out)
           out.mkdir()
@@ -137,9 +140,9 @@ jobs:
               os.symlink(gt.resolve(), target / "ground_truth.csv")
               included.append(subject.name)
 
-          if len(included) < 2:
+          if len(included) < min_subjects:
               raise SystemExit(
-                  "Need at least two usable manual-GT subjects after exclusions; "
+                  f"Need at least {min_subjects} usable manual-GT subject(s) after exclusions; "
                   f"included={included}, excluded_incompatible={sorted(excluded_incompatible)}"
               )
           print(f"included={','.join(included)}")
@@ -226,6 +229,7 @@ jobs:
             echo "Excluded subjects without GT: ${{ steps.gt.outputs.excluded_no_gt }}"
             echo "Excluded GT subjects with incompatible public ROI indices: ${{ steps.gt.outputs.excluded_incompatible }}"
             echo "include_non_cells: true"
+            echo "run_calibrated_loso: ${{ inputs.run_calibrated_loso }}"
             cat results/comparison.md
           } >> "$GITHUB_STEP_SUMMARY"
 
