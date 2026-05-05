@@ -57,6 +57,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   ZENODO_CACHE_KEY: track2p-zenodo-17091226-data-md5-8d12ff6b93a26e28609c5a20b11f3d88
 
 concurrency:
