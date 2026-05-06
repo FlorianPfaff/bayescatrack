@@ -424,7 +424,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             order=args.order,
             weighted_centroids=args.weighted_centroids,
         )
-        summaries = radial_growth_summaries(rows)
+        radial_summaries = radial_growth_summaries(rows)
         if args.rows_output is not None:
             _write_dict_rows(
                 [row.to_dict() for row in rows],
@@ -432,14 +432,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "csv",
             )
         _write_result(
-            [summary.to_dict() for summary in summaries],
+            [summary.to_dict() for summary in radial_summaries],
             args.output,
             args.format,
             title="Radial Growth Summary",
         )
         return 0
 
-    summaries = affine_growth_summaries(
+    affine_summaries = affine_growth_summaries(
         sessions,
         tracks.tracks,
         source_session=args.source_session,
@@ -448,7 +448,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         weighted_centroids=args.weighted_centroids,
     )
     _write_result(
-        [summary.to_dict() for summary in summaries],
+        [summary.to_dict() for summary in affine_summaries],
         args.output,
         args.format,
         title="Affine Growth Summary",
@@ -737,11 +737,21 @@ def _normalize_track_matrix(track_matrix: Any, *, n_sessions: int) -> np.ndarray
 def _optional_roi(value: object) -> int | None:
     if value is None:
         return None
-    try:
-        if isinstance(value, float) and np.isnan(value):
+    if isinstance(value, (int, np.integer)):
+        roi = int(value)
+    elif isinstance(value, (float, np.floating)):
+        if np.isnan(float(value)):
             return None
         roi = int(value)
-    except (TypeError, ValueError):
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            roi = int(text)
+        except ValueError:
+            return None
+    else:
         return None
     if roi < 0:
         return None
