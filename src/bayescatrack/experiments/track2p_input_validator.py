@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-
 from bayescatrack.core.bridge import Track2pSession
 from bayescatrack.experiments.track2p_benchmark import (
     GROUND_TRUTH_REFERENCE_SOURCE,
@@ -144,7 +143,9 @@ def run_track2p_input_validation(
     )
     subject_dirs = discover_subject_dirs(config.data)
     if not subject_dirs:
-        raise ValueError(f"No Track2p-style subject directories found under {config.data}")
+        raise ValueError(
+            f"No Track2p-style subject directories found under {config.data}"
+        )
 
     rows: list[RoiCoverageRow] = []
     for subject_dir in subject_dirs:
@@ -250,16 +251,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--data", required=True, type=Path, help="Track2p data root or one subject directory"
+        "--data",
+        required=True,
+        type=Path,
+        help="Track2p data root or one subject directory",
     )
-    parser.add_argument("--reference", type=Path, default=None, help="Optional ground_truth.csv file/root")
+    parser.add_argument(
+        "--reference",
+        type=Path,
+        default=None,
+        help="Optional ground_truth.csv file/root",
+    )
     parser.add_argument(
         "--reference-kind",
         default="manual-gt",
         choices=("auto", "manual-gt", "track2p-output", "aligned-subject-rows"),
         help="Reference kind to resolve; manual-gt is recommended for paper-facing validation",
     )
-    parser.add_argument("--plane", dest="plane_name", default="plane0", help="Plane name such as plane0")
+    parser.add_argument(
+        "--plane", dest="plane_name", default="plane0", help="Plane name such as plane0"
+    )
     parser.add_argument(
         "--input-format",
         default="auto",
@@ -286,7 +297,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=True,
     )
     parser.add_argument("--missing-preview-limit", type=int, default=20)
-    parser.add_argument("--output", type=Path, default=None, help="Optional output file")
+    parser.add_argument(
+        "--output", type=Path, default=None, help="Optional output file"
+    )
     parser.add_argument(
         "--format",
         choices=("markdown", "table", "json", "csv"),
@@ -428,7 +441,9 @@ def _fieldnames(rows: Sequence[dict[str, int | str | bool | None]]) -> list[str]
     return [key for key in preferred if any(key in row for row in rows)] + extra
 
 
-def _write_stdout(result: Track2pInputValidationResult, output_format: OutputFormat) -> None:
+def _write_stdout(
+    result: Track2pInputValidationResult, output_format: OutputFormat
+) -> None:
     if output_format == "json":
         print(json.dumps(result.to_rows(), indent=2))
         return
