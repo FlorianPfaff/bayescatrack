@@ -19,6 +19,7 @@ from typing import Literal
 
 import numpy as np
 
+from bayescatrack.core.bridge import Track2pSession
 from bayescatrack.experiments.track2p_benchmark import (
     GROUND_TRUTH_REFERENCE_SOURCE,
     ReferenceKind,
@@ -330,7 +331,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _coverage_row_for_session(
     *,
     subject: str,
-    session: object,
+    session: Track2pSession,
     session_index: int,
     reference_source: str,
     reference_values: np.ndarray,
