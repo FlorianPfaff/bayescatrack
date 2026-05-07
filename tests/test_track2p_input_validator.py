@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from bayescatrack.experiments.track2p_input_validator import (
     Track2pInputValidationConfig,
     format_validation_markdown,
@@ -91,10 +90,14 @@ def test_track2p_input_validator_reports_missing_manual_gt_rois(tmp_path):
     assert missing_rows[0].session == "2024-05-02_a"
     assert missing_rows[0].referenced_max == 10
     assert missing_rows[0].loaded_max == 2
-    assert missing_rows[0].index_space_hint == "loaded_roi_subset_or_reindexed_public_data"
+    assert (
+        missing_rows[0].index_space_hint == "loaded_roi_subset_or_reindexed_public_data"
+    )
 
 
-def test_track2p_input_validator_rejects_non_manual_references(tmp_path, write_raw_npy_session):
+def test_track2p_input_validator_rejects_non_manual_references(
+    tmp_path, write_raw_npy_session
+):
     subject_dir = tmp_path / "jm003"
     masks = np.zeros((2, 4, 4), dtype=bool)
     masks[0, 0:2, 0:2] = True
