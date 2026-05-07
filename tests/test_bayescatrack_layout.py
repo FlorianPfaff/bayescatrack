@@ -30,6 +30,7 @@ def test_bayescatrack_module_entry_point_help():
     assert "summary" in proc.stdout
     assert "export" in proc.stdout
     assert "benchmark" in proc.stdout
+    assert "growth" in proc.stdout
 
 
 def test_bayescatrack_track2p_benchmark_help():

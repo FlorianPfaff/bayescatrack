@@ -7,7 +7,7 @@ import sys
 
 from bayescatrack.core.bridge import main as _core_main
 
-_TOP_LEVEL_HELP = """usage: bayescatrack {summary,export,benchmark} ...
+_TOP_LEVEL_HELP = """usage: bayescatrack {summary,export,benchmark,growth} ...
 
 BayesCaTrack command line tools.
 
@@ -15,6 +15,7 @@ commands:
   summary      Print a JSON summary for one Track2p-style subject directory.
   export       Export a PyRecEst-ready NPZ bundle for one subject.
   benchmark    Run reproducible benchmark harnesses.
+  growth       Analyze global growth/displacement patterns from track tables.
 
 Run 'bayescatrack <command> --help' for command-specific options.
 """
@@ -27,6 +28,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args or args[0] in {"-h", "--help"}:
         print(_TOP_LEVEL_HELP)
         return 0
+
+    if args[0] == "growth":
+        from bayescatrack.analysis.growth import main as _growth_main
+
+        return int(_growth_main(args[1:]))
 
     if args[0] != "benchmark":
         return int(_core_main(args))

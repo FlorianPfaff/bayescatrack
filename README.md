@@ -154,6 +154,27 @@ python -m bayescatrack benchmark track2p \
 
 The benchmark prints a compact table by default and can also write JSON or CSV via `--format json --output results.json` or `--format csv --output results.csv`.
 
+Analyze radial growth from an existing track table:
+
+```bash
+python -m bayescatrack growth radial \
+  --subject /path/to/jm039 \
+  --tracks results/predicted_tracks.csv \
+  --center tracked-centroid \
+  --rows-output results/radial_displacements.csv \
+  --output results/radial_growth_summary.md
+```
+
+Fit a global affine growth field from one source session to later sessions:
+
+```bash
+python -m bayescatrack growth affine \
+  --subject /path/to/jm039 \
+  --tracks results/predicted_tracks.csv \
+  --output results/affine_growth_summary.csv \
+  --format csv
+```
+
 Run a reproducible benchmark suite from one JSON manifest:
 
 ```json
