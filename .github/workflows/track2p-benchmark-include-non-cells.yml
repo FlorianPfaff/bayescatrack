@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       data_path:
-        description: "Zenodo extraction directory"
+        description: "Longitudinal tracking data directory"
         type: string
         default: track2p-data
         required: true
@@ -35,9 +35,6 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  ZENODO_URL: https://zenodo.org/records/17091226/files/data.zip?download=1
-  ZENODO_MD5: 8d12ff6b93a26e28609c5a20b11f3d88
-  ZENODO_CACHE_KEY: track2p-zenodo-17091226-data-md5-8d12ff6b93a26e28609c5a20b11f3d88
 
 jobs:
   benchmark:
@@ -57,36 +54,14 @@ jobs:
           python -m pip install "numpy<3"
           python -m pip install -e .
 
-      - name: Restore Track2p Zenodo archive
-        id: restore-data
-        uses: actions/cache/restore@v5
+      - name: Restore or download longitudinal tracking data
+        uses: ./.github/actions/setup-longitudinaltracking-data
         with:
-          path: data-cache/data.zip
-          key: ${{ env.ZENODO_CACHE_KEY }}
-
-      - name: Download Track2p Zenodo archive on cache miss
-        if: steps.restore-data.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p data-cache
-          curl --fail --location --show-error --retry 5 --retry-delay 30 --retry-all-errors \
-            --output data-cache/data.zip "$ZENODO_URL"
-
-      - name: Verify archive checksum
-        run: echo "${ZENODO_MD5}  data-cache/data.zip" | md5sum --check -
-
-      - name: Save Track2p Zenodo archive cache
-        if: steps.restore-data.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: data-cache/data.zip
-          key: ${{ env.ZENODO_CACHE_KEY }}
-
-      - name: Extract archive
-        run: |
-          rm -rf "${{ inputs.data_path }}" benchmark-ground-truth-subjects results
-          mkdir -p "${{ inputs.data_path }}"
-          python -m zipfile -e data-cache/data.zip "${{ inputs.data_path }}"
-          du -sh "${{ inputs.data_path }}" || true
+          data_path: ${{ inputs.data_path }}
+          cache_key: longitudinaltracking-webdav-${{ inputs.data_path }}-v1
+          webdav_url: ${{ secrets.LONGITUDINALTRACKING_WEBDAV_URL }}
+          webdav_user: ${{ secrets.LONGITUDINALTRACKING_DATA_KEY }}
+          webdav_password: ${{ secrets.LONGITUDINALTRACKING_DATA_PASSWORD }}
 
       - name: Filter to usable manual-GT subjects
         id: gt
