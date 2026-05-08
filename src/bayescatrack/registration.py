@@ -184,17 +184,6 @@ def _extract_centroid_points(
     )
 
 
-def _invert_affine(
-    matrix: np.ndarray,
-    offset: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    matrix = np.asarray(matrix, dtype=float)
-    offset = np.asarray(offset, dtype=float).reshape(-1)
-    inverse_matrix = np.linalg.inv(matrix)
-    inverse_offset = -inverse_matrix @ offset
-    return inverse_matrix, inverse_offset
-
-
 def _registration_kwargs(bundle_kwargs: Mapping[str, Any]) -> _RegistrationKwargs:
     return {
         "order": bundle_kwargs["order"],
@@ -451,10 +440,15 @@ def register_measurement_plane_to_reference(
         registration_result.transform.offset,
         dtype=float,
     ).reshape(-1)
-    measurement_to_reference_matrix, measurement_to_reference_offset = _invert_affine(
-        reference_to_measurement_matrix,
-        reference_to_measurement_offset,
+    measurement_to_reference_transform = registration_result.transform.inverse()
+    measurement_to_reference_matrix = np.asarray(
+        measurement_to_reference_transform.matrix,
+        dtype=float,
     )
+    measurement_to_reference_offset = np.asarray(
+        measurement_to_reference_transform.offset,
+        dtype=float,
+    ).reshape(-1)
 
     warped_masks = warp_roi_masks_into_reference_frame(
         measurement_plane.roi_masks,

@@ -20,10 +20,16 @@ def _install_fake_point_set_registration(monkeypatch) -> None:
         def __init__(self, matrix, offset):
             self.matrix = np.asarray(matrix, dtype=float)
             self.offset = np.asarray(offset, dtype=float)
+            self.inverse_calls = 0
 
         def apply(self, points):
             points = np.asarray(points, dtype=float)
             return (self.matrix @ points.T).T + self.offset
+
+        def inverse(self):
+            self.inverse_calls += 1
+            inverse_matrix = np.linalg.inv(self.matrix)
+            return AffineTransform(inverse_matrix, -inverse_matrix @ self.offset)
 
     # pylint: disable=too-many-instance-attributes
     class RegistrationResult:
@@ -114,6 +120,9 @@ def test_build_registered_session_pair_association_bundle_recovers_translation(
     npt.assert_allclose(
         registered_bundle.plane_registration.measurement_to_reference_offset,
         np.array([-1.0, 0.0]),
+    )
+    assert (
+        registered_bundle.plane_registration.pyrecest_registration_result.transform.inverse_calls == 1
     )
     npt.assert_allclose(
         registered_bundle.plane_registration.registered_measurement_plane.centroids(
