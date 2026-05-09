@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from pyrecest.utils import pairwise_mahalanobis_distances
+from bayescatrack._pyrecest_pairwise_features import pairwise_mahalanobis_distances
 
 _MAHALANOBIS_INSTALLED_ATTR = "_bayescatrack_mahalanobis_installed"
 
