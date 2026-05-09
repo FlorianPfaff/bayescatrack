@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,9 +17,11 @@ from bayescatrack.core.bridge import (
 )
 from bayescatrack.reference import Track2pReference
 from bayescatrack.track2p_registration import register_plane_pair
-from pyrecest.utils import (
-    CalibratedPairwiseAssociationModel as PyRecEstCalibratedPairwiseAssociationModel,
+from bayescatrack.association._pyrecest_feature_compat import (
+    CalibratedPairwiseAssociationModel,
+    FeatureTransform,
     NamedPairwiseFeatureSchema,
+    load_logistic_pairwise_association_model,
     pairwise_feature_tensor as pyrecest_pairwise_feature_tensor,
 )
 
@@ -45,9 +47,6 @@ DEFAULT_ASSOCIATION_FEATURES = (
     "session_gap",
 )
 
-FeatureTransform = Callable[[Mapping[str, Any]], Any]
-
-
 @dataclass(frozen=True)
 class CalibratedAssociationModel:
     """PyRecEst logistic model plus the feature schema used to fit it."""
@@ -61,10 +60,8 @@ class CalibratedAssociationModel:
 
         return pairwise_feature_schema(self.feature_names)
 
-    def _pyrecest_model(self) -> PyRecEstCalibratedPairwiseAssociationModel:
-        return PyRecEstCalibratedPairwiseAssociationModel(
-            self.model, schema=self.schema
-        )
+    def _pyrecest_model(self) -> CalibratedPairwiseAssociationModel:
+        return CalibratedPairwiseAssociationModel(self.model, schema=self.schema)
 
     def pairwise_cost_matrix_from_components(
         self, pairwise_components: Mapping[str, Any]
@@ -341,12 +338,7 @@ def fit_logistic_association_model(
 ) -> CalibratedAssociationModel:
     """Fit PyRecEst's logistic pairwise association model and keep its feature schema."""
 
-    try:
-        from pyrecest.utils import LogisticPairwiseAssociationModel
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
-            "PyRecEst with LogisticPairwiseAssociationModel is required to fit calibrated association costs."
-        ) from exc
+    LogisticPairwiseAssociationModel = load_logistic_pairwise_association_model()
     model = LogisticPairwiseAssociationModel(**dict(model_kwargs or {}))
     model.fit(features, labels, sample_weight=sample_weight)
     return CalibratedAssociationModel(model=model, feature_names=tuple(feature_names))
