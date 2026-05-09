@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/alpine-wheels
-          key: ${{ runner.os }}-alpine-wheels-${{ hashFiles('poetry.lock') }}
+          key: ${{ runner.os }}-alpine-wheels-${{ hashFiles('poetry.lock', '.github/workflows/mega-linter.yml') }}
 
       - name: Build cp313 musllinux wheels
         if: steps.cache-wheels.outputs.cache-hit != 'true'
@@ -73,6 +73,7 @@ jobs:
             mkdir -p alpine-wheels;
             poetry export --with dev --format requirements.txt --without-hashes --output requirements-alpine.txt;
             sed -i '/^\(torch\|triton\|jax\|jaxlib\|nvidia.*\|intel-openmp\|cuda-bindings\|tbb\|mkl\|healpy\)\([<>=!~ ;].*\)\?$/d' requirements-alpine.txt;
+            sed -i 's|d41f8f1ecfef7d448e41d1aa03623b83e57d9072|2154731b9954ba004cac0b48be4539d5bcdcb468|g' requirements-alpine.txt;
             python -m pip wheel --no-deps -r requirements-alpine.txt -w alpine-wheels;
             rm -f requirements-alpine.txt"
 
