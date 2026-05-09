@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +17,11 @@ from bayescatrack.core.bridge import (
 )
 from bayescatrack.reference import Track2pReference
 from bayescatrack.track2p_registration import register_plane_pair
+from pyrecest.utils import (
+    CalibratedPairwiseAssociationModel as PyRecEstCalibratedPairwiseAssociationModel,
+    NamedPairwiseFeatureSchema,
+    pairwise_feature_tensor as pyrecest_pairwise_feature_tensor,
+)
 
 _ACTIVITY_FEATURES = {
     "activity_correlation",
@@ -40,6 +45,8 @@ DEFAULT_ASSOCIATION_FEATURES = (
     "session_gap",
 )
 
+FeatureTransform = Callable[[Mapping[str, Any]], Any]
+
 
 @dataclass(frozen=True)
 class CalibratedAssociationModel:
@@ -48,13 +55,26 @@ class CalibratedAssociationModel:
     model: Any
     feature_names: tuple[str, ...] = DEFAULT_ASSOCIATION_FEATURES
 
+    @property
+    def schema(self) -> NamedPairwiseFeatureSchema:
+        """Named PyRecEst feature schema used by this calibrated model."""
+
+        return pairwise_feature_schema(self.feature_names)
+
+    def _pyrecest_model(self) -> PyRecEstCalibratedPairwiseAssociationModel:
+        return PyRecEstCalibratedPairwiseAssociationModel(
+            self.model, schema=self.schema
+        )
+
     def pairwise_cost_matrix_from_components(
         self, pairwise_components: Mapping[str, Any]
     ) -> np.ndarray:
-        features = pairwise_feature_tensor(
-            pairwise_components, feature_names=self.feature_names
+        return np.asarray(
+            self._pyrecest_model().pairwise_cost_matrix_from_components(
+                pairwise_components
+            ),
+            dtype=float,
         )
-        return np.asarray(self.model.pairwise_cost_matrix(features), dtype=float)
 
     def pairwise_cost_matrix_from_bundle(
         self,
@@ -73,10 +93,12 @@ class CalibratedAssociationModel:
     ) -> np.ndarray:
         """Convert pairwise components into calibrated match probabilities."""
 
-        features = pairwise_feature_tensor(
-            pairwise_components, feature_names=self.feature_names
+        return np.asarray(
+            self._pyrecest_model().pairwise_probability_matrix_from_components(
+                pairwise_components
+            ),
+            dtype=float,
         )
-        return self.predict_match_probability(features)
 
     def pairwise_probability_matrix_from_bundle(
         self,
@@ -93,16 +115,9 @@ class CalibratedAssociationModel:
     def predict_match_probability(self, features: Any) -> np.ndarray:
         """Return calibrated match probabilities for feature vectors or pairwise tensors."""
 
-        if hasattr(self.model, "predict_match_probability"):
-            probabilities = self.model.predict_match_probability(features)
-        elif hasattr(self.model, "predict_proba"):
-            probabilities = np.asarray(self.model.predict_proba(features), dtype=float)
-            if probabilities.ndim >= 1 and probabilities.shape[-1] == 2:
-                probabilities = probabilities[..., 1]
-        else:
-            costs = np.asarray(self.model.pairwise_cost_matrix(features), dtype=float)
-            probabilities = np.exp(-costs)
-        return np.clip(np.asarray(probabilities, dtype=float), 0.0, 1.0)
+        return np.asarray(
+            self._pyrecest_model().predict_match_probability(features), dtype=float
+        )
 
 
 @dataclass(frozen=True)
@@ -135,6 +150,17 @@ class ReferencePairwiseExamples:
     @property
     def gap(self) -> int:
         return int(self.session_b - self.session_a)
+
+
+def pairwise_feature_schema(
+    feature_names: Sequence[str] = DEFAULT_ASSOCIATION_FEATURES,
+) -> NamedPairwiseFeatureSchema:
+    """Return the PyRecEst named feature schema for BayesCaTrack components."""
+
+    names = tuple(feature_names)
+    return NamedPairwiseFeatureSchema(
+        names, transforms=_feature_transforms_for(names)
+    )
 
 
 def pairwise_components_from_bundle(
@@ -190,19 +216,12 @@ def pairwise_feature_tensor(
 ) -> np.ndarray:
     """Build a ``(n_reference, n_measurement, n_features)`` tensor from pairwise components."""
 
-    feature_planes = [
-        _component_feature(pairwise_components, feature_name)
-        for feature_name in feature_names
-    ]
-    if not feature_planes:
-        raise ValueError("At least one feature is required")
-    reference_shape = feature_planes[0].shape
-    for feature_name, feature_plane in zip(feature_names, feature_planes):
-        if feature_plane.shape != reference_shape:
-            raise ValueError(
-                f"Feature {feature_name!r} has shape {feature_plane.shape}, expected {reference_shape}"
-            )
-    return np.stack(feature_planes, axis=-1)
+    return np.asarray(
+        pyrecest_pairwise_feature_tensor(
+            pairwise_components, pairwise_feature_schema(feature_names)
+        ),
+        dtype=float,
+    )
 
 
 def label_matrix_from_reference(
@@ -323,10 +342,10 @@ def fit_logistic_association_model(
     """Fit PyRecEst's logistic pairwise association model and keep its feature schema."""
 
     try:
-        from pyrecest.utils.association_models import LogisticPairwiseAssociationModel
+        from pyrecest.utils import LogisticPairwiseAssociationModel
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "PyRecEst with pyrecest.utils.association_models is required to fit calibrated association costs."
+            "PyRecEst with LogisticPairwiseAssociationModel is required to fit calibrated association costs."
         ) from exc
     model = LogisticPairwiseAssociationModel(**dict(model_kwargs or {}))
     model.fit(features, labels, sample_weight=sample_weight)
@@ -371,6 +390,51 @@ def calibrated_cost_matrix_from_bundle(
     )
 
 
+def _feature_transforms_for(
+    feature_names: Sequence[str],
+) -> dict[str, FeatureTransform]:
+    transforms: dict[str, FeatureTransform] = {}
+    for feature_name in feature_names:
+        if feature_name == "one_minus_iou":
+            transforms[feature_name] = lambda components: 1.0 - _finite_component(
+                components, "iou"
+            )
+        elif feature_name == "one_minus_mask_cosine":
+            transforms[feature_name] = lambda components: 1.0 - _finite_component(
+                components, "mask_cosine_similarity"
+            )
+        elif feature_name == "one_minus_covariance_shape_similarity":
+            transforms[feature_name] = lambda components: 1.0 - _finite_component(
+                components, "covariance_shape_similarity"
+            )
+        elif feature_name == "one_minus_activity_similarity":
+            transforms[feature_name] = lambda components: 1.0 - _finite_component(
+                components, "activity_similarity"
+            )
+        elif feature_name in _ACTIVITY_FEATURES:
+            transforms[feature_name] = _optional_zero_component_transform(feature_name)
+        elif feature_name == "session_gap":
+            transforms[feature_name] = _session_gap_transform
+    return transforms
+
+
+def _optional_zero_component_transform(
+    feature_name: str,
+) -> FeatureTransform:
+    def transform(pairwise_components: Mapping[str, Any]) -> np.ndarray:
+        if feature_name not in pairwise_components:
+            return _zero_like_pairwise_component(pairwise_components)
+        return _finite_component(pairwise_components, feature_name)
+
+    return transform
+
+
+def _session_gap_transform(pairwise_components: Mapping[str, Any]) -> np.ndarray:
+    if "session_gap" not in pairwise_components:
+        return np.ones_like(_zero_like_pairwise_component(pairwise_components))
+    return _finite_component(pairwise_components, "session_gap")
+
+
 def _build_training_bundle(
     sessions: Sequence[Track2pSession],
     session_a: int,
@@ -399,26 +463,6 @@ def _build_training_bundle(
         registered_measurement_plane,
     )
     return bundle
-
-
-def _component_feature(
-    pairwise_components: Mapping[str, Any], feature_name: str
-) -> np.ndarray:
-    if feature_name == "one_minus_iou":
-        return 1.0 - _finite_component(pairwise_components, "iou")
-    if feature_name == "one_minus_mask_cosine":
-        return 1.0 - _finite_component(pairwise_components, "mask_cosine_similarity")
-    if feature_name == "one_minus_covariance_shape_similarity":
-        return 1.0 - _finite_component(
-            pairwise_components, "covariance_shape_similarity"
-        )
-    if feature_name == "one_minus_activity_similarity":
-        return 1.0 - _finite_component(pairwise_components, "activity_similarity")
-    if feature_name in _ACTIVITY_FEATURES and feature_name not in pairwise_components:
-        return _zero_like_pairwise_component(pairwise_components)
-    if feature_name == "session_gap" and feature_name not in pairwise_components:
-        return np.ones_like(_zero_like_pairwise_component(pairwise_components))
-    return _finite_component(pairwise_components, feature_name)
 
 
 def _finite_component(
