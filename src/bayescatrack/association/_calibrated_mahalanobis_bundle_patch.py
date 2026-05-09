@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from pyrecest.utils import (
+from bayescatrack._pyrecest_pairwise_features import (
     pairwise_covariance_shape_components as _pyrecest_pairwise_covariance_shape_components,
 )
-from pyrecest.utils import pairwise_mahalanobis_distances
+from bayescatrack._pyrecest_pairwise_features import pairwise_mahalanobis_distances
 
 from . import calibrated_costs as _calibrated_costs
 
@@ -132,7 +132,9 @@ def _pairwise_mahalanobis_centroid_distances(
         covariances_other,
         regularization=0.0,
     )
-    return np.nan_to_num(np.asarray(distances, dtype=float), nan=0.0, posinf=1.0e6, neginf=0.0)
+    return np.nan_to_num(
+        np.asarray(distances, dtype=float), nan=0.0, posinf=1.0e6, neginf=0.0
+    )
 
 
 def _pairwise_covariance_shape_components(
@@ -165,9 +167,24 @@ def _pairwise_covariance_shape_components(
         )
     )
     return (
-        np.nan_to_num(np.asarray(covariance_shape_cost, dtype=float), nan=0.0, posinf=1.0e6, neginf=0.0),
-        np.nan_to_num(np.asarray(covariance_logdet_cost, dtype=float), nan=0.0, posinf=1.0e6, neginf=0.0),
-        np.nan_to_num(np.asarray(covariance_shape_similarity, dtype=float), nan=0.0, posinf=1.0, neginf=0.0),
+        np.nan_to_num(
+            np.asarray(covariance_shape_cost, dtype=float),
+            nan=0.0,
+            posinf=1.0e6,
+            neginf=0.0,
+        ),
+        np.nan_to_num(
+            np.asarray(covariance_logdet_cost, dtype=float),
+            nan=0.0,
+            posinf=1.0e6,
+            neginf=0.0,
+        ),
+        np.nan_to_num(
+            np.asarray(covariance_shape_similarity, dtype=float),
+            nan=0.0,
+            posinf=1.0,
+            neginf=0.0,
+        ),
     )
 
 
