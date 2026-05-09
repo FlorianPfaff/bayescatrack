@@ -1,0 +1,131 @@
+name: Setup longitudinal tracking data
+description: Restore cached longitudinal tracking data or download it from the private WebDAV share with rclone.
+
+inputs:
+  data_path:
+    description: Directory where the prepared data tree should be available.
+    required: true
+  cache_key:
+    description: Cache key for the prepared data tree.
+    required: false
+    default: longitudinaltracking-webdav-track2p-data-v1
+  webdav_url:
+    description: WebDAV endpoint URL.
+    required: true
+  webdav_user:
+    description: WebDAV public share key or user name.
+    required: true
+  webdav_password:
+    description: WebDAV public share password.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore cached longitudinal tracking data
+      id: restore-data
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ inputs.data_path }}
+        key: ${{ inputs.cache_key }}
+
+    - name: Install rclone without sudo
+      if: steps.restore-data.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v rclone >/dev/null 2>&1; then
+          mkdir -p "$RUNNER_TEMP/rclone-bin" "$RUNNER_TEMP/rclone-download"
+          curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip \
+            -o "$RUNNER_TEMP/rclone-download/rclone.zip"
+        python - <<'PY'
+        import os
+        import shutil
+        import zipfile
+        from pathlib import Path
+
+        temp = Path(os.environ["RUNNER_TEMP"])
+        zip_path = temp / "rclone-download" / "rclone.zip"
+        extract_dir = temp / "rclone-download" / "extract"
+        bin_dir = temp / "rclone-bin"
+        with zipfile.ZipFile(zip_path) as archive:
+            archive.extractall(extract_dir)
+        matches = list(extract_dir.glob("rclone-*/rclone"))
+        if not matches:
+            raise SystemExit("Downloaded rclone archive did not contain the rclone binary")
+        target = bin_dir / "rclone"
+        shutil.copy2(matches[0], target)
+        target.chmod(0o755)
+        PY
+          echo "$RUNNER_TEMP/rclone-bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/rclone-bin:$PATH"
+        fi
+        rclone version
+
+    - name: Download longitudinal tracking data via rclone
+      if: steps.restore-data.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        DATA_PATH: ${{ inputs.data_path }}
+        DOWNLOAD_DIR: ${{ runner.temp }}/longitudinaltracking-webdav
+        WEBDAV_URL: ${{ inputs.webdav_url }}
+        WEBDAV_USER: ${{ inputs.webdav_user }}
+        WEBDAV_PASSWORD: ${{ inputs.webdav_password }}
+      run: |
+        set -euo pipefail
+        if [[ -z "$WEBDAV_URL" || -z "$WEBDAV_USER" || -z "$WEBDAV_PASSWORD" ]]; then
+          echo "Missing LONGITUDINALTRACKING_* WebDAV secrets." >&2
+          exit 1
+        fi
+
+        rm -rf "$DOWNLOAD_DIR" "$DATA_PATH"
+        mkdir -p "$DOWNLOAD_DIR" "$DATA_PATH"
+        obscured="$(rclone obscure "$WEBDAV_PASSWORD")"
+        rclone copy ":webdav:" "$DOWNLOAD_DIR" \
+          --webdav-url "$WEBDAV_URL" \
+          --webdav-vendor owncloud \
+          --webdav-user "$WEBDAV_USER" \
+          --webdav-pass "$obscured" \
+          --progress
+
+        python - <<'PY'
+        import os
+        import shutil
+        import zipfile
+        from pathlib import Path
+
+        source = Path(os.environ["DOWNLOAD_DIR"])
+        target = Path(os.environ["DATA_PATH"])
+        children = sorted(source.iterdir(), key=lambda path: path.name)
+        zips = [
+            path for path in children
+            if path.is_file() and path.suffix.lower() == ".zip"
+        ]
+
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True)
+
+        if len(zips) == 1 and not any(source.rglob("stat.npy")):
+            with zipfile.ZipFile(zips[0]) as archive:
+                archive.extractall(target)
+        else:
+            for item in children:
+                destination = target / item.name
+                if item.is_dir():
+                    shutil.copytree(item, destination)
+                else:
+                    shutil.copy2(item, destination)
+
+        if not any(target.rglob("stat.npy")):
+            raise SystemExit(f"Downloaded data in {target} does not contain any Suite2p stat.npy files")
+        PY
+
+        du -sh "$DATA_PATH" || true
+
+    - name: Save longitudinal tracking data cache
+      if: steps.restore-data.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ inputs.data_path }}
+        key: ${{ inputs.cache_key }}
