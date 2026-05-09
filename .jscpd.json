@@ -1,6 +1,4 @@
 {
   "threshold": 1.5,
-  "ignore": [
-    "**/.github/workflows/**"
-  ]
+  "ignore": ["**/.github/workflows/**"]
 }
