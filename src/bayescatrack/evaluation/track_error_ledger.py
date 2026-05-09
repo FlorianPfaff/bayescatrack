@@ -13,9 +13,7 @@ from typing import Any
 from pyrecest.utils.track_evaluation import (
     summarize_track_errors as _summarize_track_errors,
 )
-from pyrecest.utils.track_evaluation import (
-    track_error_ledger as _track_error_ledger,
-)
+from pyrecest.utils.track_evaluation import track_error_ledger as _track_error_ledger
 
 Observation = tuple[int, int]
 Link = tuple[int, int, int, int]
