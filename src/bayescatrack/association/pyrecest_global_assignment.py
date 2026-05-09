@@ -253,14 +253,29 @@ def _load_pyrecest_tracks_to_index_matrix() -> Any:
             from pyrecest.utils.multisession_assignment_score import (
                 tracks_to_index_matrix,
             )
-        except (
-            ImportError
-        ) as exc:  # pragma: no cover - exercised in runtime environments without PyRecEst
-            raise ImportError(
-                "PyRecEst with pyrecest.utils.tracks_to_index_matrix is required "
-                "for global-assignment benchmarks."
-            ) from exc
+        except ImportError:
+            return _local_tracks_to_index_matrix
     return tracks_to_index_matrix
+
+
+def _local_tracks_to_index_matrix(
+    tracks: Sequence[Mapping[int, int]],
+    session_sizes: Sequence[int] | None = None,
+    *,
+    fill_value: int = -1,
+) -> np.ndarray:
+    """Small fallback matching PyRecEst's dense track matrix convention."""
+
+    max_session = max(
+        (int(session_index) for track in tracks for session_index in track),
+        default=-1,
+    )
+    n_sessions = max(max_session + 1, len(session_sizes or ()))
+    matrix = np.full((len(tracks), n_sessions), fill_value, dtype=int)
+    for track_index, track in enumerate(tracks):
+        for session_index, detection_index in track.items():
+            matrix[track_index, int(session_index)] = int(detection_index)
+    return matrix
 
 
 def _load_pyrecest_multisession_solver() -> Any:
