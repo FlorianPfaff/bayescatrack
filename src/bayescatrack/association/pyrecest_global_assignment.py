@@ -199,9 +199,7 @@ def tracks_to_suite2p_index_matrix(
     detection_matrix = np.asarray(
         _load_pyrecest_tracks_to_index_matrix()(
             list(tracks),
-            session_sizes=tuple(
-                int(session.plane_data.n_rois) for session in sessions
-            ),
+            session_sizes=tuple(int(session.plane_data.n_rois) for session in sessions),
             fill_value=-1,
         ),
         dtype=int,
@@ -283,7 +281,9 @@ def _load_pyrecest_multisession_solver() -> Any:
         from pyrecest.utils import solve_multisession_assignment
     except ImportError:
         try:
-            from pyrecest.utils.multisession_assignment import solve_multisession_assignment
+            from pyrecest.utils.multisession_assignment import (
+                solve_multisession_assignment,
+            )
         except (
             ImportError
         ) as exc:  # pragma: no cover - exercised in runtime environments without PyRecEst

@@ -8,7 +8,9 @@ import numpy as np
 from bayescatrack._pyrecest_pairwise_features import (
     pairwise_covariance_shape_components as _pyrecest_pairwise_covariance_shape_components,
 )
-from bayescatrack._pyrecest_pairwise_features import pairwise_mahalanobis_distances
+from bayescatrack._pyrecest_pairwise_features import (
+    pairwise_mahalanobis_distances,
+)
 
 from . import calibrated_costs as _calibrated_costs
 
