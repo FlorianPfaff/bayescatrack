@@ -73,19 +73,30 @@ jobs:
         uses: ./.github/actions/setup-longitudinaltracking-data
         with:
           data_path: ${{ inputs.raw_data_path }}
-          cache_key: longitudinaltrackingraw-webdav-${{ inputs.raw_data_path }}-v1
+          cache_key: longitudinaltrackingraw-webdav-${{ inputs.raw_data_path }}-spatial-v2
           webdav_url: ${{ secrets.LONGITUDINALTRACKINGRAW_WEBDAV_URL }}
           webdav_user: ${{ secrets.LONGITUDINALTRACKINGRAW_DATA_KEY }}
           webdav_password: ${{ secrets.LONGITUDINALTRACKINGRAW_DATA_PASSWORD }}
+          required_file_name: stat.npy
+          rclone_filter_rules: |
+            + **/suite2p/plane0/**
+            + *.zip
+            - **
 
       - name: Restore or download Track2p metadata data
         uses: ./.github/actions/setup-longitudinaltracking-data
         with:
           data_path: ${{ inputs.metadata_data_path }}
-          cache_key: longitudinaltracking-webdav-${{ inputs.metadata_data_path }}-v1
+          cache_key: longitudinaltracking-webdav-${{ inputs.metadata_data_path }}-metadata-v2
           webdav_url: ${{ secrets.LONGITUDINALTRACKING_WEBDAV_URL }}
           webdav_user: ${{ secrets.LONGITUDINALTRACKING_DATA_KEY }}
           webdav_password: ${{ secrets.LONGITUDINALTRACKING_DATA_PASSWORD }}
+          required_file_name: ground_truth.csv
+          rclone_filter_rules: |
+            + **/ground_truth.csv
+            + **/track2p/**
+            + *.zip
+            - **
 
       - name: Prepare raw Suite2p benchmark tree
         id: prep
