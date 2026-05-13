@@ -42,7 +42,7 @@ runs:
         cache_data_path="${data_path}"
         if [ "${RUNNER_ENVIRONMENT:-}" = "self-hosted" ]; then
           cache_slug="$(printf '%s' "${{ inputs.cache_key }}" | tr -c 'A-Za-z0-9_.-' '_')"
-          cache_data_path="${HOME}/.cache/datasets/bayescatrack/${cache_slug}"
+          cache_data_path="${HOME}/.cache/datasets/${cache_slug}"
         fi
         mkdir -p "$(dirname "${data_path}")" "${cache_data_path}"
         if find "${cache_data_path}" -type f -name "stat.npy" -print -quit | grep -q .; then

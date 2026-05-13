@@ -34,6 +34,11 @@ on:
         type: string
         default: "3.11"
         required: true
+      runner:
+        description: "Runner label; self-hosted keeps downloaded data in /home/github-runner/.cache/datasets"
+        type: string
+        default: self-hosted
+        required: true
 
 permissions:
   contents: read
@@ -43,7 +48,7 @@ env:
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 480
     steps:
       - name: Check out repository
