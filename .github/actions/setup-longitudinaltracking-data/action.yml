@@ -18,6 +18,14 @@ inputs:
   webdav_password:
     description: WebDAV public share password.
     required: true
+  required_file_name:
+    description: File name that must exist in the prepared dataset tree.
+    required: false
+    default: stat.npy
+  rclone_filter_rules:
+    description: Optional newline-separated rclone filter rules for partial downloads.
+    required: false
+    default: ""
 
 outputs:
   data-path:
@@ -40,12 +48,13 @@ runs:
         set -euo pipefail
         data_path="${{ inputs.data_path }}"
         cache_data_path="${data_path}"
+        required_file_name="${{ inputs.required_file_name }}"
         if [ "${RUNNER_ENVIRONMENT:-}" = "self-hosted" ]; then
           cache_slug="$(printf '%s' "${{ inputs.cache_key }}" | tr -c 'A-Za-z0-9_.-' '_')"
           cache_data_path="${HOME}/.cache/datasets/${cache_slug}"
         fi
         mkdir -p "$(dirname "${data_path}")" "${cache_data_path}"
-        if find "${cache_data_path}" -type f -name "stat.npy" -print -quit | grep -q .; then
+        if find "${cache_data_path}" -type f -name "${required_file_name}" -print -quit | grep -q .; then
           echo "local-cache-hit=true" >> "$GITHUB_OUTPUT"
           echo "Longitudinal tracking data cache hit at ${cache_data_path}"
         else
@@ -105,6 +114,8 @@ runs:
         WEBDAV_URL: ${{ inputs.webdav_url }}
         WEBDAV_USER: ${{ inputs.webdav_user }}
         WEBDAV_PASSWORD: ${{ inputs.webdav_password }}
+        RCLONE_FILTER_RULES: ${{ inputs.rclone_filter_rules }}
+        REQUIRED_FILE_NAME: ${{ inputs.required_file_name }}
       run: |
         set -euo pipefail
         if [[ -z "$WEBDAV_URL" || -z "$WEBDAV_USER" || -z "$WEBDAV_PASSWORD" ]]; then
@@ -115,11 +126,18 @@ runs:
         rm -rf "$DOWNLOAD_DIR" "$CACHE_DATA_PATH"
         mkdir -p "$DOWNLOAD_DIR" "$CACHE_DATA_PATH"
         obscured="$(rclone obscure "$WEBDAV_PASSWORD")"
+        rclone_args=()
+        if [[ -n "$RCLONE_FILTER_RULES" ]]; then
+          filter_file="$RUNNER_TEMP/rclone-filter-rules.txt"
+          printf '%s\n' "$RCLONE_FILTER_RULES" > "$filter_file"
+          rclone_args+=(--filter-from "$filter_file")
+        fi
         rclone copy ":webdav:" "$DOWNLOAD_DIR" \
           --webdav-url "$WEBDAV_URL" \
           --webdav-vendor owncloud \
           --webdav-user "$WEBDAV_USER" \
           --webdav-pass "$obscured" \
+          "${rclone_args[@]}" \
           --progress
 
         python - <<'PY'
@@ -130,6 +148,7 @@ runs:
 
         source = Path(os.environ["DOWNLOAD_DIR"])
         target = Path(os.environ["CACHE_DATA_PATH"])
+        required_file_name = os.environ["REQUIRED_FILE_NAME"]
         children = sorted(source.iterdir(), key=lambda path: path.name)
         zips = [
             path for path in children
@@ -151,8 +170,10 @@ runs:
                 else:
                     shutil.copy2(item, destination)
 
-        if not any(target.rglob("stat.npy")):
-            raise SystemExit(f"Downloaded data in {target} does not contain any Suite2p stat.npy files")
+        if not any(target.rglob(required_file_name)):
+            raise SystemExit(
+                f"Downloaded data in {target} does not contain any {required_file_name} files"
+            )
         PY
 
         du -sh "$CACHE_DATA_PATH" || true
@@ -169,8 +190,8 @@ runs:
           mkdir -p "$(dirname "${DATA_PATH}")"
           ln -s "$(realpath "${CACHE_DATA_PATH}")" "${DATA_PATH}"
         fi
-        if ! find "${DATA_PATH}" -type f -name "stat.npy" -print -quit | grep -q .; then
-          echo "Prepared data path does not contain any Suite2p stat.npy files: ${DATA_PATH}" >&2
+        if ! find "${DATA_PATH}" -type f -name "${{ inputs.required_file_name }}" -print -quit | grep -q .; then
+          echo "Prepared data path does not contain any ${{ inputs.required_file_name }} files: ${DATA_PATH}" >&2
           exit 1
         fi
         du -sh "${DATA_PATH}" || true
