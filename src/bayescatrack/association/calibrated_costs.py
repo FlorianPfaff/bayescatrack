@@ -7,6 +7,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from bayescatrack.association._pyrecest_feature_compat import (
+    CalibratedPairwiseAssociationModel,
+    FeatureTransform,
+    NamedPairwiseFeatureSchema,
+    load_logistic_pairwise_association_model,
+)
+from bayescatrack.association._pyrecest_feature_compat import (
+    pairwise_feature_tensor as pyrecest_pairwise_feature_tensor,
+)
 from bayescatrack.association.activity_similarity import (
     add_activity_similarity_components,
 )
@@ -17,13 +26,6 @@ from bayescatrack.core.bridge import (
 )
 from bayescatrack.reference import Track2pReference
 from bayescatrack.track2p_registration import register_plane_pair
-from bayescatrack.association._pyrecest_feature_compat import (
-    CalibratedPairwiseAssociationModel,
-    FeatureTransform,
-    NamedPairwiseFeatureSchema,
-    load_logistic_pairwise_association_model,
-    pairwise_feature_tensor as pyrecest_pairwise_feature_tensor,
-)
 
 _ACTIVITY_FEATURES = {
     "activity_correlation",
@@ -46,6 +48,7 @@ DEFAULT_ASSOCIATION_FEATURES = (
     "activity_similarity_available",
     "session_gap",
 )
+
 
 @dataclass(frozen=True)
 class CalibratedAssociationModel:
@@ -155,9 +158,7 @@ def pairwise_feature_schema(
     """Return the PyRecEst named feature schema for BayesCaTrack components."""
 
     names = tuple(feature_names)
-    return NamedPairwiseFeatureSchema(
-        names, transforms=_feature_transforms_for(names)
-    )
+    return NamedPairwiseFeatureSchema(names, transforms=_feature_transforms_for(names))
 
 
 def pairwise_components_from_bundle(
