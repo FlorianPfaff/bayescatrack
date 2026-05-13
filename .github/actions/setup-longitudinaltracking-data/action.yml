@@ -108,7 +108,7 @@ runs:
       run: |
         set -euo pipefail
         if [[ -z "$WEBDAV_URL" || -z "$WEBDAV_USER" || -z "$WEBDAV_PASSWORD" ]]; then
-          echo "Missing LONGITUDINALTRACKING_* WebDAV secrets." >&2
+          echo "Missing WebDAV credentials for longitudinal tracking data." >&2
           exit 1
         fi
 
