@@ -48,7 +48,9 @@ class RawBenchmarkDiagnostic:
             "loaded_rois": self.loaded_rois,
             "missing_rois": self.missing_rois,
             "compatible": str(self.compatible).lower(),
-            "referenced_max": "" if self.referenced_max is None else self.referenced_max,
+            "referenced_max": (
+                "" if self.referenced_max is None else self.referenced_max
+            ),
             "loaded_max": "" if self.loaded_max is None else self.loaded_max,
             "missing_preview": " ".join(str(value) for value in self.missing_preview),
         }
@@ -82,7 +84,9 @@ class RawBenchmarkPreparation:
             "excluded_by_user": ",".join(self.excluded_by_user),
             "excluded_no_raw_suite2p": ",".join(self.excluded_no_raw_suite2p),
             "excluded_no_ground_truth": ",".join(self.excluded_no_ground_truth),
-            "excluded_no_track2p_suite2p_indices": ",".join(self.excluded_no_track2p_suite2p_indices),
+            "excluded_no_track2p_suite2p_indices": ",".join(
+                self.excluded_no_track2p_suite2p_indices
+            ),
             "excluded_incompatible": ",".join(self.excluded_incompatible),
             "has_usable_subjects": str(self.has_usable_subjects).lower(),
         }
@@ -112,10 +116,14 @@ def prepare_raw_suite2p_benchmark_data(
     raw_root = Path(raw_root).resolve()
     output_root = Path(output_root).resolve()
     metadata_root = raw_root if metadata_root is None else Path(metadata_root).resolve()
-    excluded_by_user = frozenset(name.strip() for name in exclude_subjects if name.strip())
+    excluded_by_user = frozenset(
+        name.strip() for name in exclude_subjects if name.strip()
+    )
 
     raw_subjects = _discover_candidate_subjects(raw_root, plane_name=plane_name)
-    metadata_subjects = _discover_candidate_subjects(metadata_root, plane_name=plane_name)
+    metadata_subjects = _discover_candidate_subjects(
+        metadata_root, plane_name=plane_name
+    )
     subject_names = sorted(set(raw_subjects) | set(metadata_subjects))
 
     if output_root.exists():
@@ -149,8 +157,13 @@ def prepare_raw_suite2p_benchmark_data(
 
         prepared_subject = output_root / subject_name
         prepared_subject.mkdir()
-        _link_raw_suite2p_sessions(raw_subject.path, prepared_subject, plane_name=plane_name)
-        _link_path(metadata_subject.path / GROUND_TRUTH_CSV_NAME, prepared_subject / GROUND_TRUTH_CSV_NAME)
+        _link_raw_suite2p_sessions(
+            raw_subject.path, prepared_subject, plane_name=plane_name
+        )
+        _link_path(
+            metadata_subject.path / GROUND_TRUTH_CSV_NAME,
+            prepared_subject / GROUND_TRUTH_CSV_NAME,
+        )
         _link_path(metadata_subject.path / "track2p", prepared_subject / "track2p")
 
         incompatibilities, subject_diagnostics = _validate_prepared_subject(
@@ -160,7 +173,9 @@ def prepare_raw_suite2p_benchmark_data(
         diagnostics.extend(subject_diagnostics)
         if incompatibilities:
             shutil.rmtree(prepared_subject)
-            excluded_incompatible.append(f"{subject_name} ({'; '.join(incompatibilities)})")
+            excluded_incompatible.append(
+                f"{subject_name} ({'; '.join(incompatibilities)})"
+            )
             continue
         included.append(subject_name)
 
@@ -260,12 +275,20 @@ def _discover_candidate_subjects(
             path=path,
             has_raw_suite2p=_has_raw_suite2p_sessions(path, plane_name=plane_name),
             has_ground_truth=(path / GROUND_TRUTH_CSV_NAME).is_file(),
-            has_track2p_suite2p_indices=(path / "track2p" / f"{plane_name}_suite2p_indices.npy").is_file()
+            has_track2p_suite2p_indices=(
+                path / "track2p" / f"{plane_name}_suite2p_indices.npy"
+            ).is_file()
             and (path / "track2p" / "track_ops.npy").is_file(),
         )
-        if candidate.has_raw_suite2p or candidate.has_ground_truth or (path / "track2p").exists():
+        if (
+            candidate.has_raw_suite2p
+            or candidate.has_ground_truth
+            or (path / "track2p").exists()
+        ):
             current = candidates.get(name)
-            if current is None or _candidate_score(candidate) > _candidate_score(current):
+            if current is None or _candidate_score(candidate) > _candidate_score(
+                current
+            ):
                 candidates[name] = candidate
     return candidates
 
@@ -284,7 +307,10 @@ def _looks_like_subject_name(name: str) -> bool:
 
 
 def _has_raw_suite2p_sessions(subject_dir: Path, *, plane_name: str) -> bool:
-    return any((session_dir / "suite2p" / plane_name / "stat.npy").is_file() for session_dir in find_track2p_session_dirs(subject_dir))
+    return any(
+        (session_dir / "suite2p" / plane_name / "stat.npy").is_file()
+        for session_dir in find_track2p_session_dirs(subject_dir)
+    )
 
 
 def _link_raw_suite2p_sessions(
@@ -297,7 +323,9 @@ def _link_raw_suite2p_sessions(
         _link_path(session_dir, prepared_subject / session_dir.name)
         linked = True
     if not linked:
-        raise ValueError(f"No raw Suite2p {plane_name} sessions found for {raw_subject}")
+        raise ValueError(
+            f"No raw Suite2p {plane_name} sessions found for {raw_subject}"
+        )
 
 
 def _validate_prepared_subject(
@@ -317,13 +345,20 @@ def _validate_prepared_subject(
         subject_dir / GROUND_TRUTH_CSV_NAME,
         subject_dir=subject_dir,
     )
-    track2p_reference = load_track2p_reference(subject_dir / "track2p", plane_name=plane_name)
-    references = (("manual_gt", ground_truth), ("track2p_suite2p_indices", track2p_reference))
+    track2p_reference = load_track2p_reference(
+        subject_dir / "track2p", plane_name=plane_name
+    )
+    references = (
+        ("manual_gt", ground_truth),
+        ("track2p_suite2p_indices", track2p_reference),
+    )
 
     incompatibilities: list[str] = []
     diagnostics: list[RawBenchmarkDiagnostic] = []
     if track2p_reference.source != "track2p_output_suite2p_indices":
-        incompatibilities.append(f"Track2p reference source is {track2p_reference.source}, not track2p_output_suite2p_indices")
+        incompatibilities.append(
+            f"Track2p reference source is {track2p_reference.source}, not track2p_output_suite2p_indices"
+        )
 
     for source, reference in references:
         source_incompatibilities, source_diagnostics = _reference_coverage_diagnostics(
@@ -347,13 +382,17 @@ def _reference_coverage_diagnostics(
     incompatibilities: list[str] = []
     if len(sessions) != reference.n_sessions:
         return (
-            [f"{source} has {reference.n_sessions} sessions but raw data has {len(sessions)}"],
+            [
+                f"{source} has {reference.n_sessions} sessions but raw data has {len(sessions)}"
+            ],
             diagnostics,
         )
     session_names = tuple(session.session_name for session in sessions)
     if session_names != reference.session_names:
         return (
-            [f"{source} session order {reference.session_names!r} does not match raw sessions {session_names!r}"],
+            [
+                f"{source} session order {reference.session_names!r} does not match raw sessions {session_names!r}"
+            ],
             diagnostics,
         )
     for session_index, session in enumerate(sessions):

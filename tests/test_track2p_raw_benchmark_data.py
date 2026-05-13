@@ -77,10 +77,7 @@ def test_prepare_raw_suite2p_benchmark_data_combines_raw_sessions_with_metadata(
     assert preparation.included == ("jm038",)
     assert (preparation.output_root / "jm038" / "ground_truth.csv").is_file()
     assert (
-        preparation.output_root
-        / "jm038"
-        / "track2p"
-        / "plane0_suite2p_indices.npy"
+        preparation.output_root / "jm038" / "track2p" / "plane0_suite2p_indices.npy"
     ).is_file()
     assert all(diagnostic.compatible for diagnostic in preparation.diagnostics)
 
@@ -125,7 +122,9 @@ def test_prepare_raw_suite2p_benchmark_data_rejects_missing_raw_indices(tmp_path
     except ValueError as exc:
         assert "Need at least 1 raw Suite2p manual-GT subject" in str(exc)
     else:  # pragma: no cover
-        raise AssertionError("Expected raw Suite2p preparation to reject missing indices")
+        raise AssertionError(
+            "Expected raw Suite2p preparation to reject missing indices"
+        )
 
     diagnostics = (tmp_path / "results" / "raw_suite2p_roi_diagnostics.csv").read_text(
         encoding="utf-8"
