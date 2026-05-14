@@ -19,6 +19,7 @@ from bayescatrack.association._pyrecest_feature_compat import (
 from bayescatrack.association.activity_similarity import (
     add_activity_similarity_components,
 )
+from bayescatrack.association.registered_masks import replace_empty_registered_masks
 from bayescatrack.core.bridge import (
     SessionAssociationBundle,
     Track2pSession,
@@ -438,6 +439,9 @@ def _build_training_bundle(
         sessions[session_a].plane_data,
         sessions[session_b].plane_data,
         transform_type=options.transform_type,
+    )
+    registered_measurement_plane, _ = replace_empty_registered_masks(
+        registered_measurement_plane
     )
     bundle = build_session_pair_association_bundle(
         sessions[session_a],
