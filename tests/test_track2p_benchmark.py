@@ -11,8 +11,6 @@ from bayescatrack.experiments.track2p_benchmark import (
     format_benchmark_table,
     run_track2p_benchmark,
 )
-from bayescatrack.reference import Track2pReference
-from bayescatrack.experiments import track2p_benchmark as benchmark_module
 
 
 def _write_subject(subject_dir, write_raw_npy_session, *, write_reference=True):
@@ -197,27 +195,57 @@ def test_benchmark_uses_ground_truth_csv_reference(tmp_path, write_raw_npy_sessi
     assert result["complete_track_f1"] == pytest.approx(1.0)
 
 
-def test_scoring_recomputes_f1_from_counts_when_no_links_match():
-    reference = Track2pReference(
-        session_names=("2024-05-01_a", "2024-05-02_a"),
-        suite2p_indices=np.array([[1, 1]], dtype=object),
-        curated_mask=None,
-        source="ground_truth_csv",
+def test_benchmark_recomputes_f1_from_counts_when_no_links_match(
+    tmp_path, write_raw_npy_session
+):
+    subject_dir = tmp_path / "jm005"
+    masks = np.zeros((2, 4, 4), dtype=bool)
+    masks[0, 0:2, 0:2] = True
+    masks[1, 2:4, 2:4] = True
+    write_raw_npy_session(subject_dir, "2024-05-01_a", masks, offset=0.0)
+    write_raw_npy_session(subject_dir, "2024-05-02_a", masks, offset=10.0)
+    _write_ground_truth_csv(
+        subject_dir,
+        ("2024-05-01_a", "2024-05-02_a"),
+        ((1, 0),),
     )
-    predicted = np.array([[1, 2]], dtype=object)
 
-    scores = benchmark_module._score_prediction_against_reference(
-        predicted,
-        reference,
-        config=Track2pBenchmarkConfig(
-            data=Path("."),
+    track2p_dir = subject_dir / "track2p"
+    track2p_dir.mkdir()
+    np.save(
+        track2p_dir / "track_ops.npy",
+        {
+            "all_ds_path": np.array(
+                [
+                    str(subject_dir / "2024-05-01_a"),
+                    str(subject_dir / "2024-05-02_a"),
+                ],
+                dtype=object,
+            ),
+            "vector_curation_plane_0": np.array([1.0]),
+        },
+        allow_pickle=True,
+    )
+    np.save(
+        track2p_dir / "plane0_suite2p_indices.npy",
+        np.array([[0, 1]], dtype=object),
+        allow_pickle=True,
+    )
+
+    rows = run_track2p_benchmark(
+        Track2pBenchmarkConfig(
+            data=subject_dir,
             method="track2p-baseline",
             restrict_to_reference_seed_rois=False,
-        ),
+        )
     )
 
-    assert scores["pairwise_f1"] == pytest.approx(0.0)
-    assert scores["complete_track_f1"] == pytest.approx(0.0)
+    result = rows[0].to_dict()
+    assert result["pairwise_true_positives"] == 0
+    assert result["pairwise_false_positives"] == 1
+    assert result["pairwise_false_negatives"] == 1
+    assert result["pairwise_f1"] == pytest.approx(0.0)
+    assert result["complete_track_f1"] == pytest.approx(0.0)
 
 
 def test_ground_truth_csv_validation_catches_filtered_stat_rows(tmp_path):
