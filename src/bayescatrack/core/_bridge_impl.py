@@ -1338,6 +1338,20 @@ def _pairwise_sparse_mask_dot(
     if reference_pixel.size == 0 or measurement_pixel.size == 0:
         return result
 
+    unique_pixel_result = _pairwise_unique_pixel_mask_dot(
+        reference_pixel,
+        reference_roi,
+        reference_values,
+        measurement_pixel,
+        measurement_roi,
+        measurement_values,
+        num_pixels=reference_flat.shape[1],
+        num_reference=n_reference,
+        num_measurement=n_measurement,
+    )
+    if unique_pixel_result is not None:
+        return unique_pixel_result
+
     reference_order = np.argsort(reference_pixel, kind="stable")
     measurement_order = np.argsort(measurement_pixel, kind="stable")
     reference_pixel = reference_pixel[reference_order]
@@ -1379,6 +1393,54 @@ def _pairwise_sparse_mask_dot(
         reference_index = reference_stop
         measurement_index = measurement_stop
     return result
+
+
+def _pairwise_unique_pixel_mask_dot(
+    reference_pixel: np.ndarray,
+    reference_roi: np.ndarray,
+    reference_values: np.ndarray,
+    measurement_pixel: np.ndarray,
+    measurement_roi: np.ndarray,
+    measurement_values: np.ndarray,
+    *,
+    num_pixels: int,
+    num_reference: int,
+    num_measurement: int,
+) -> np.ndarray | None:
+    if (
+        np.unique(reference_pixel).size != reference_pixel.size
+        or np.unique(measurement_pixel).size != measurement_pixel.size
+    ):
+        return None
+
+    reference_owner = np.full(num_pixels, -1, dtype=int)
+    measurement_owner = np.full(num_pixels, -1, dtype=int)
+    reference_value_by_pixel = np.zeros(num_pixels, dtype=float)
+    measurement_value_by_pixel = np.zeros(num_pixels, dtype=float)
+
+    reference_owner[reference_pixel] = reference_roi
+    measurement_owner[measurement_pixel] = measurement_roi
+    reference_value_by_pixel[reference_pixel] = reference_values
+    measurement_value_by_pixel[measurement_pixel] = measurement_values
+
+    common_pixels = (reference_owner >= 0) & (measurement_owner >= 0)
+    if not np.any(common_pixels):
+        return np.zeros((num_reference, num_measurement), dtype=float)
+
+    pair_ids = (
+        reference_owner[common_pixels] * num_measurement
+        + measurement_owner[common_pixels]
+    )
+    weights = (
+        reference_value_by_pixel[common_pixels]
+        * measurement_value_by_pixel[common_pixels]
+    )
+    flat_result = np.bincount(
+        pair_ids,
+        weights=weights,
+        minlength=num_reference * num_measurement,
+    )
+    return flat_result.reshape(num_reference, num_measurement).astype(float)
 
 
 def _advance_equal_values(values: np.ndarray, start_index: int) -> int:
