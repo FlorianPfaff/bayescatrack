@@ -79,8 +79,8 @@ jobs:
           webdav_password: ${{ secrets.LONGITUDINALTRACKINGRAW_DATA_PASSWORD }}
           required_file_name: stat.npy
           rclone_filter_rules: |
-            + **/suite2p/plane0/**
-            + *.zip
+            + **/suite2p/plane0/stat.npy
+            + **/suite2p/plane0/iscell.npy
             - **
 
       - name: Restore or download Track2p metadata data
@@ -94,8 +94,8 @@ jobs:
           required_file_name: ground_truth.csv
           rclone_filter_rules: |
             + **/ground_truth.csv
-            + **/track2p/**
-            + *.zip
+            + **/track2p/track_ops.npy
+            + **/track2p/plane0_suite2p_indices.npy
             - **
 
       - name: Prepare raw Suite2p benchmark tree

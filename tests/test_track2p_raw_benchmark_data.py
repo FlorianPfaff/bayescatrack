@@ -42,7 +42,9 @@ def _write_raw_suite2p_subject(root: Path, subject_name: str) -> Path:
     subject_dir = root / "raw_export" / subject_name
     iscell = np.array([[1, 0.9], [1, 0.8], [0, 0.1]], dtype=float)
     for session_name in ("2024-05-01_a", "2024-05-02_a"):
-        _write_suite2p_session(subject_dir, session_name, iscell=iscell)
+        plane_dir = _write_suite2p_session(subject_dir, session_name, iscell=iscell)
+        (plane_dir / "ops.npy").unlink()
+        (plane_dir / "F.npy").unlink()
     return subject_dir
 
 
