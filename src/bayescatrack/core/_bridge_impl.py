@@ -739,6 +739,8 @@ def load_suite2p_plane(
             )
 
     roi_mask_array = _stack_or_empty_masks(roi_masks, image_shape, weighted_masks)
+    if fov is None and roi_masks:
+        fov = np.asarray(roi_mask_array, dtype=float).sum(axis=0)
     selected_indices_array = np.asarray(selected_indices, dtype=int)
     probability_array = (
         np.asarray(cell_probabilities, dtype=float)

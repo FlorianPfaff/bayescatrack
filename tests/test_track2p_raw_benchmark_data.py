@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from bayescatrack.core.bridge import load_suite2p_plane
 from bayescatrack.experiments.track2p_benchmark import (
     Track2pBenchmarkConfig,
     run_track2p_benchmark,
@@ -99,6 +100,12 @@ def test_prepare_raw_suite2p_benchmark_data_combines_raw_sessions_with_metadata(
     assert result["subject"] == "jm038"
     assert result["reference_source"] == "ground_truth_csv"
     assert result["complete_track_f1"] == 1.0
+
+    plane = load_suite2p_plane(
+        preparation.output_root / "jm038" / "2024-05-01_a" / "suite2p" / "plane0",
+        include_non_cells=True,
+    )
+    assert plane.fov is not None
 
 
 def test_prepare_raw_suite2p_benchmark_data_accepts_raw_track2p_bridge(tmp_path):
