@@ -151,7 +151,14 @@ def prepare_raw_suite2p_benchmark_data(
         if metadata_subject is None or not metadata_subject.has_ground_truth:
             excluded_no_gt.append(subject_name)
             continue
-        if not metadata_subject.has_track2p_suite2p_indices:
+        track2p_subject = (
+            metadata_subject
+            if metadata_subject.has_track2p_suite2p_indices
+            else raw_subject
+            if raw_subject.has_track2p_suite2p_indices
+            else None
+        )
+        if track2p_subject is None:
             excluded_no_suite2p_indices.append(subject_name)
             continue
 
@@ -164,7 +171,7 @@ def prepare_raw_suite2p_benchmark_data(
             metadata_subject.path / GROUND_TRUTH_CSV_NAME,
             prepared_subject / GROUND_TRUTH_CSV_NAME,
         )
-        _link_path(metadata_subject.path / "track2p", prepared_subject / "track2p")
+        _link_path(track2p_subject.path / "track2p", prepared_subject / "track2p")
 
         incompatibilities, subject_diagnostics = _validate_prepared_subject(
             prepared_subject,

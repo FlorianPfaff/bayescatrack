@@ -48,16 +48,19 @@ def _write_raw_suite2p_subject(root: Path, subject_name: str) -> Path:
     return subject_dir
 
 
-def _write_metadata_subject(root: Path, subject_name: str) -> Path:
+def _write_metadata_subject(
+    root: Path, subject_name: str, *, include_track2p: bool = True
+) -> Path:
     session_names = ("2024-05-01_a", "2024-05-02_a")
     subject_dir = root / "metadata_export" / subject_name
     subject_dir.mkdir(parents=True)
     _write_ground_truth_csv(subject_dir, session_names, ((0, 0), (2, 2)))
-    _write_track2p_suite2p_indices(
-        subject_dir,
-        session_names,
-        np.array([[0, 0], [2, 2]], dtype=object),
-    )
+    if include_track2p:
+        _write_track2p_suite2p_indices(
+            subject_dir,
+            session_names,
+            np.array([[0, 0], [2, 2]], dtype=object),
+        )
     return subject_dir
 
 
@@ -96,6 +99,30 @@ def test_prepare_raw_suite2p_benchmark_data_combines_raw_sessions_with_metadata(
     assert result["subject"] == "jm038"
     assert result["reference_source"] == "ground_truth_csv"
     assert result["complete_track_f1"] == 1.0
+
+
+def test_prepare_raw_suite2p_benchmark_data_accepts_raw_track2p_bridge(tmp_path):
+    raw_root = tmp_path / "raw"
+    metadata_root = tmp_path / "metadata"
+    raw_subject = _write_raw_suite2p_subject(raw_root, "jm039")
+    _write_track2p_suite2p_indices(
+        raw_subject,
+        ("2024-05-01_a", "2024-05-02_a"),
+        np.array([[0, 0], [2, 2]], dtype=object),
+    )
+    _write_metadata_subject(metadata_root, "jm039", include_track2p=False)
+
+    preparation = prepare_raw_suite2p_benchmark_data(
+        raw_root=raw_root,
+        metadata_root=metadata_root,
+        output_root=tmp_path / "prepared",
+        diagnostics_dir=tmp_path / "results",
+    )
+
+    assert preparation.included == ("jm039",)
+    assert (
+        preparation.output_root / "jm039" / "track2p" / "plane0_suite2p_indices.npy"
+    ).is_file()
 
 
 def test_prepare_raw_suite2p_benchmark_data_rejects_missing_raw_indices(tmp_path):
