@@ -11,6 +11,8 @@ from bayescatrack.experiments.track2p_benchmark import (
     format_benchmark_table,
     run_track2p_benchmark,
 )
+from bayescatrack.reference import Track2pReference
+from bayescatrack.experiments import track2p_benchmark as benchmark_module
 
 
 def _write_subject(subject_dir, write_raw_npy_session, *, write_reference=True):
@@ -193,6 +195,29 @@ def test_benchmark_uses_ground_truth_csv_reference(tmp_path, write_raw_npy_sessi
     assert result["reference_source"] == "ground_truth_csv"
     assert result["pairwise_f1"] == pytest.approx(1.0)
     assert result["complete_track_f1"] == pytest.approx(1.0)
+
+
+def test_scoring_recomputes_f1_from_counts_when_no_links_match():
+    reference = Track2pReference(
+        session_names=("2024-05-01_a", "2024-05-02_a"),
+        suite2p_indices=np.array([[1, 1]], dtype=object),
+        curated_mask=None,
+        source="ground_truth_csv",
+    )
+    predicted = np.array([[1, 2]], dtype=object)
+
+    scores = benchmark_module._score_prediction_against_reference(
+        predicted,
+        reference,
+        config=Track2pBenchmarkConfig(
+            data=Path("."),
+            method="track2p-baseline",
+            restrict_to_reference_seed_rois=False,
+        ),
+    )
+
+    assert scores["pairwise_f1"] == pytest.approx(0.0)
+    assert scores["complete_track_f1"] == pytest.approx(0.0)
 
 
 def test_ground_truth_csv_validation_catches_filtered_stat_rows(tmp_path):

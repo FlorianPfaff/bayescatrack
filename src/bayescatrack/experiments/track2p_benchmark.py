@@ -706,7 +706,7 @@ def _score_prediction_against_reference(
             seed_session=config.seed_session,
         )
 
-    scores = score_track_matrices(predicted, reference_matrix)
+    scores = _with_recomputed_f1_scores(score_track_matrices(predicted, reference_matrix))
     if config.restrict_to_reference_seed_rois:
         scores = {
             **scores,
@@ -718,6 +718,25 @@ def _score_prediction_against_reference(
             ),
         }
     return scores
+
+
+def _with_recomputed_f1_scores(
+    scores: Mapping[str, float | int],
+) -> dict[str, float | int]:
+    repaired_scores = dict(scores)
+    for prefix in ("pairwise", "complete_track"):
+        tp = int(repaired_scores.get(f"{prefix}_true_positives", 0))
+        fp = int(repaired_scores.get(f"{prefix}_false_positives", 0))
+        fn = int(repaired_scores.get(f"{prefix}_false_negatives", 0))
+        repaired_scores[f"{prefix}_f1"] = _f1_from_counts(tp, fp, fn)
+    return repaired_scores
+
+
+def _f1_from_counts(true_positives: int, false_positives: int, false_negatives: int) -> float:
+    denominator = 2 * true_positives + false_positives + false_negatives
+    if denominator == 0:
+        return 1.0
+    return float(2 * true_positives / denominator)
 
 
 def _filter_tracks_by_reference_seed_rois(
