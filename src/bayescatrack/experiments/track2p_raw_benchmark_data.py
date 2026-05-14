@@ -374,7 +374,14 @@ def _validate_prepared_subject(
             reference,
             sessions,
         )
-        incompatibilities.extend(source_incompatibilities)
+        if source == "manual_gt":
+            incompatibilities.extend(source_incompatibilities)
+        else:
+            incompatibilities.extend(
+                incompatibility
+                for incompatibility in source_incompatibilities
+                if "missing ROI indices" not in incompatibility
+            )
         diagnostics.extend(source_diagnostics)
     return incompatibilities, diagnostics
 

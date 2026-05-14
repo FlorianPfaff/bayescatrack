@@ -108,7 +108,7 @@ def test_prepare_raw_suite2p_benchmark_data_accepts_raw_track2p_bridge(tmp_path)
     _write_track2p_suite2p_indices(
         raw_subject,
         ("2024-05-01_a", "2024-05-02_a"),
-        np.array([[0, 0], [2, 2]], dtype=object),
+        np.array([[0, 0], [5, 2]], dtype=object),
     )
     _write_metadata_subject(metadata_root, "jm039", include_track2p=False)
 
@@ -123,6 +123,12 @@ def test_prepare_raw_suite2p_benchmark_data_accepts_raw_track2p_bridge(tmp_path)
     assert (
         preparation.output_root / "jm039" / "track2p" / "plane0_suite2p_indices.npy"
     ).is_file()
+    assert any(
+        diagnostic.source == "track2p_suite2p_indices"
+        and diagnostic.missing_rois == 1
+        and not diagnostic.compatible
+        for diagnostic in preparation.diagnostics
+    )
 
 
 def test_prepare_raw_suite2p_benchmark_data_rejects_missing_raw_indices(tmp_path):
