@@ -154,9 +154,7 @@ def prepare_raw_suite2p_benchmark_data(
         track2p_subject = (
             metadata_subject
             if metadata_subject.has_track2p_suite2p_indices
-            else raw_subject
-            if raw_subject.has_track2p_suite2p_indices
-            else None
+            else raw_subject if raw_subject.has_track2p_suite2p_indices else None
         )
         if track2p_subject is None:
             excluded_no_suite2p_indices.append(subject_name)

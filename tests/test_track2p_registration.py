@@ -42,9 +42,7 @@ def test_register_plane_pair_falls_back_to_fov_translation_without_track2p_backe
     )
     reference_fov = reference_masks.sum(axis=0, dtype=float)
     moving_fov = moving_masks.sum(axis=0, dtype=float)
-    reference = make_track2p_session(
-        "2024-05-01_a", reference_masks, fov=reference_fov
-    )
+    reference = make_track2p_session("2024-05-01_a", reference_masks, fov=reference_fov)
     moving = make_track2p_session("2024-05-02_a", moving_masks, fov=moving_fov)
 
     registered = register_plane_pair(

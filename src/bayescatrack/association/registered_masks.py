@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from bayescatrack.core.bridge import CalciumPlaneData
 
 
@@ -34,9 +33,12 @@ def replace_empty_registered_masks(
         strict=False,
     ):
         flat_masks[roi_index, pixel_index] = fill_value
-    return plane.with_replaced_masks(
-        replacement_masks,
-        fov=plane.fov,
-        source=plane.source,
-        ops=plane.ops,
-    ), empty_registered_rois
+    return (
+        plane.with_replaced_masks(
+            replacement_masks,
+            fov=plane.fov,
+            source=plane.source,
+            ops=plane.ops,
+        ),
+        empty_registered_rois,
+    )
