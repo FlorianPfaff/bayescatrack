@@ -190,11 +190,11 @@ runs:
           mkdir -p "$(dirname "${DATA_PATH}")"
           ln -s "$(realpath "${CACHE_DATA_PATH}")" "${DATA_PATH}"
         fi
-        if ! find "${DATA_PATH}" -type f -name "${{ inputs.required_file_name }}" -print -quit | grep -q .; then
+        if ! find -L "${DATA_PATH}" -type f -name "${{ inputs.required_file_name }}" -print -quit | grep -q .; then
           echo "Prepared data path does not contain any ${{ inputs.required_file_name }} files: ${DATA_PATH}" >&2
           exit 1
         fi
-        du -sh "${DATA_PATH}" || true
+        du -shL "${DATA_PATH}" || true
 
     - name: Save longitudinal tracking data cache
       if: ${{ runner.environment != 'self-hosted' && steps.resolve.outputs.local-cache-hit != 'true' && steps.restore-data.outputs.cache-hit != 'true' }}
