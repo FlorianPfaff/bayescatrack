@@ -15,6 +15,7 @@ from bayescatrack.association.calibrated_costs import (
     calibrated_cost_matrix_from_bundle,
 )
 from bayescatrack.core.bridge import (
+    CalciumPlaneData,
     Track2pSession,
     build_session_pair_association_bundle,
 )
@@ -106,6 +107,9 @@ def build_registered_pairwise_costs(
             sessions[target_session].plane_data,
             transform_type=transform_type,
         )
+        registered_measurement_plane, empty_registered_rois = (
+            _replace_empty_registered_masks(registered_measurement_plane)
+        )
         bundle = build_session_pair_association_bundle(
             sessions[source_session],
             sessions[target_session],
@@ -126,17 +130,20 @@ def build_registered_pairwise_costs(
             )
         if cost == "calibrated":
             assert calibrated_model is not None
-            pairwise_costs[(source_session, target_session)] = (
-                calibrated_cost_matrix_from_bundle(
-                    bundle,
-                    calibrated_model,
-                    session_gap=target_session - source_session,
-                )
+            cost_matrix = calibrated_cost_matrix_from_bundle(
+                bundle,
+                calibrated_model,
+                session_gap=target_session - source_session,
             )
         else:
-            pairwise_costs[(source_session, target_session)] = np.asarray(
-                bundle.pairwise_cost_matrix, dtype=float
+            cost_matrix = np.asarray(bundle.pairwise_cost_matrix, dtype=float)
+        pairwise_costs[(source_session, target_session)] = (
+            _penalize_empty_registered_roi_columns(
+                cost_matrix,
+                empty_registered_rois,
+                large_cost=float(base_cost_kwargs.get("large_cost", 1.0e6)),
             )
+        )
     return pairwise_costs
 
 
@@ -234,6 +241,38 @@ def _cost_kwargs_for_method(cost: AssociationCost) -> dict[str, Any]:
     if cost in {"roi-aware", "calibrated"}:
         return roi_aware_cost_kwargs()
     raise ValueError(f"Unsupported association cost: {cost}")
+
+
+def _replace_empty_registered_masks(
+    plane: CalciumPlaneData,
+) -> tuple[CalciumPlaneData, np.ndarray]:
+    roi_masks = np.asarray(plane.roi_masks)
+    nonzero_mask = np.any(roi_masks != 0, axis=(1, 2))
+    empty_registered_rois = ~nonzero_mask
+    if not np.any(empty_registered_rois):
+        return plane, empty_registered_rois
+
+    replacement_masks = np.array(roi_masks, copy=True)
+    fill_value = True if replacement_masks.dtype == np.bool_ else 1
+    replacement_masks[empty_registered_rois, 0, 0] = fill_value
+    return plane.with_replaced_masks(
+        replacement_masks,
+        fov=plane.fov,
+        source=plane.source,
+        ops=plane.ops,
+    ), empty_registered_rois
+
+
+def _penalize_empty_registered_roi_columns(
+    cost_matrix: np.ndarray, empty_registered_rois: np.ndarray, *, large_cost: float
+) -> np.ndarray:
+    cost_matrix = np.asarray(cost_matrix, dtype=float).copy()
+    if empty_registered_rois.shape != (cost_matrix.shape[1],):
+        raise ValueError(
+            "empty_registered_rois must have one entry for each measurement ROI"
+        )
+    cost_matrix[:, empty_registered_rois] = large_cost
+    return cost_matrix
 
 
 def _roi_indices_for_session(session: Track2pSession) -> np.ndarray:
