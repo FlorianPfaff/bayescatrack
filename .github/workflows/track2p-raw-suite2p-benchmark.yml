@@ -81,6 +81,8 @@ jobs:
           rclone_filter_rules: |
             + **/suite2p/plane0/stat.npy
             + **/suite2p/plane0/iscell.npy
+            + **/track2p/track_ops.npy
+            + **/track2p/plane0_suite2p_indices.npy
             - **
 
       - name: Restore or download Track2p metadata data
@@ -94,8 +96,6 @@ jobs:
           required_file_name: ground_truth.csv
           rclone_filter_rules: |
             + **/ground_truth.csv
-            + **/track2p/track_ops.npy
-            + **/track2p/plane0_suite2p_indices.npy
             - **
 
       - name: Prepare raw Suite2p benchmark tree
