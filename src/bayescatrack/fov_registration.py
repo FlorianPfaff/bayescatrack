@@ -95,7 +95,12 @@ def estimate_integer_fov_shift(
     if reference.ndim != 2 or measurement.ndim != 2:
         raise ValueError("reference_fov and measurement_fov must both be 2-D arrays")
     if reference.shape != measurement.shape:
-        raise ValueError("reference_fov and measurement_fov must have identical shape")
+        common_shape = (
+            max(int(reference.shape[0]), int(measurement.shape[0])),
+            max(int(reference.shape[1]), int(measurement.shape[1])),
+        )
+        reference = _pad_image_to_shape(reference, common_shape)
+        measurement = _pad_image_to_shape(measurement, common_shape)
     if subtract_mean:
         reference = reference - float(np.mean(reference))
         measurement = measurement - float(np.mean(measurement))
@@ -109,6 +114,14 @@ def estimate_integer_fov_shift(
         if shift_yx[axis] > size // 2:
             shift_yx[axis] -= size
     return shift_yx, float(correlation[peak_index])
+
+
+def _pad_image_to_shape(image: np.ndarray, output_shape: tuple[int, int]) -> np.ndarray:
+    if image.shape == output_shape:
+        return image
+    result = np.zeros(output_shape, dtype=image.dtype)
+    result[: image.shape[0], : image.shape[1]] = image
+    return result
 
 
 def _overlap_slices(size: int, shift: int) -> tuple[slice, slice]:
