@@ -71,7 +71,18 @@ def register_plane_pair(
     if reference_plane.fov is None or moving_plane.fov is None:
         raise ValueError("Both planes must provide FOV images for registration.")
 
-    reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
+    try:
+        reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
+    except ImportError:
+        from bayescatrack.fov_registration import (
+            register_measurement_plane_by_fov_translation,
+        )
+
+        return register_measurement_plane_by_fov_translation(
+            reference_plane,
+            moving_plane,
+        ).registered_measurement_plane
+
     registered_fov, reg_params = reg_img_elastix(
         np.asarray(reference_plane.fov),
         np.asarray(moving_plane.fov),
