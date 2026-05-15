@@ -63,6 +63,14 @@ def _handle_benchmark(args: list[str]) -> int:
             help="Validate manual-GT ROI coverage before Track2p benchmarks",
         )
         subparsers.add_parser(
+            "audit-manual-gt-rois",
+            help="Audit manual-GT ROI index spaces before Track2p benchmarks",
+        )
+        subparsers.add_parser(
+            "audit-manual-gt-roi-index-space",
+            help="Alias for audit-manual-gt-rois",
+        )
+        subparsers.add_parser(
             "compare", help="Aggregate benchmark CSVs into a comparison table"
         )
         subparsers.add_parser("suite", help="Run a JSON benchmark manifest")
@@ -93,6 +101,12 @@ def _handle_benchmark(args: list[str]) -> int:
         )
 
         return int(_track2p_input_validator_main(args[1:]))
+    if args[0] in {"audit-manual-gt-rois", "audit-manual-gt-roi-index-space"}:
+        from bayescatrack.experiments.track2p_roi_index_audit import (
+            main as _track2p_roi_index_audit_main,
+        )
+
+        return int(_track2p_roi_index_audit_main(args[1:]))
     if args[0] == "compare":
         from bayescatrack.experiments.benchmark_comparison import (
             main as _benchmark_comparison_main,
