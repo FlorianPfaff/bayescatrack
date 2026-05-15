@@ -29,6 +29,7 @@ from bayescatrack.evaluation.track2p_metrics import (
     score_track_matrices,
 )
 from bayescatrack.ground_truth_eval import load_track2p_ground_truth_csv
+from bayescatrack.matching import build_track_rows_from_matches
 from bayescatrack.reference import (
     Track2pReference,
     load_aligned_subject_reference,
@@ -36,7 +37,7 @@ from bayescatrack.reference import (
 )
 
 ReferenceKind = Literal["auto", "manual-gt", "track2p-output", "aligned-subject-rows"]
-BenchmarkMethod = Literal["track2p-baseline", "global-assignment"]
+BenchmarkMethod = Literal["track2p-baseline", "global-assignment", "oracle-gt-links"]
 BenchmarkSplit = Literal["subject", "leave-one-subject-out"]
 OutputFormat = Literal["table", "json", "csv"]
 GROUND_TRUTH_CSV_NAME = "ground_truth.csv"
@@ -168,7 +169,9 @@ def run_track2p_benchmark(
             _validate_reference_roi_indices(
                 reference, _load_subject_sessions(subject_dir, config)
             )
-        predicted_matrix, variant = _predict_subject_tracks(subject_dir, config)
+        predicted_matrix, variant = _predict_subject_tracks(
+            subject_dir, config, reference=reference
+        )
         scores = _score_prediction_against_reference(
             predicted_matrix, reference, config=config
         )
@@ -257,7 +260,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--method",
         required=True,
-        choices=("track2p-baseline", "global-assignment"),
+        choices=("track2p-baseline", "global-assignment", "oracle-gt-links"),
         help="Benchmark variant to run",
     )
     parser.add_argument(
@@ -433,7 +436,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _predict_subject_tracks(
-    subject_dir: Path, config: Track2pBenchmarkConfig
+    subject_dir: Path,
+    config: Track2pBenchmarkConfig,
+    *,
+    reference: Track2pReference | None = None,
 ) -> tuple[np.ndarray, str]:
     if config.method == "track2p-baseline":
         track2p_dir = subject_dir / "track2p"
@@ -452,10 +458,66 @@ def _predict_subject_tracks(
             )
         return normalize_track_matrix(baseline.suite2p_indices), "Track2p default"
 
+    if config.method == "oracle-gt-links":
+        if reference is None:
+            raise ValueError("oracle-gt-links requires a loaded reference")
+        return (
+            oracle_ground_truth_link_tracks(
+                reference,
+                curated_only=config.curated_only,
+            ),
+            "Oracle GT consecutive links",
+        )
+
+    if config.method != "global-assignment":
+        raise ValueError(f"Unsupported benchmark method: {config.method!r}")
+
     sessions = _load_subject_sessions(subject_dir, config)
     assignment = solve_configured_global_assignment(sessions, config)
     predicted = tracks_to_suite2p_index_matrix(assignment.result.tracks, sessions)
     return predicted, _variant_name(config.cost)
+
+
+def oracle_ground_truth_link_tracks(
+    reference: Track2pReference,
+    *,
+    curated_only: bool = False,
+) -> np.ndarray:
+    """Build an oracle prediction by stitching consecutive GT pairwise links.
+
+    This diagnostic variant does not copy the reference track matrix directly.
+    It converts each consecutive session pair into explicit GT ROI links and
+    then uses the normal BayesCaTrack row-stitching helper. If complete-track F1
+    is poor for this oracle, the failure is in track-row assembly, ROI indexing,
+    or scoring rather than in registration or association costs.
+    """
+
+    reference_matrix = _reference_matrix(reference, curated_only=curated_only)
+    start_roi_indices = sorted(
+        {
+            int(row[0])
+            for row in reference_matrix
+            if row[0] is not None and int(row[0]) >= 0
+        }
+    )
+
+    if reference.n_sessions == 1:
+        return np.asarray(start_roi_indices, dtype=int).reshape(-1, 1)
+
+    consecutive_matches = [
+        reference.pairwise_matches(
+            session_index,
+            session_index + 1,
+            curated_only=curated_only,
+        )
+        for session_index in range(reference.n_sessions - 1)
+    ]
+    return build_track_rows_from_matches(
+        reference.session_names,
+        consecutive_matches,
+        start_roi_indices=start_roi_indices,
+        fill_value=-1,
+    )
 
 
 def solve_configured_global_assignment(
