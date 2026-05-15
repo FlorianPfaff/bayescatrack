@@ -1,0 +1,42 @@
+name: Track2p Oracle benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  oracle-benchmark:
+    name: Oracle GT link benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip poetry && poetry install
+
+      - name: Run oracle GT link benchmark
+        env:
+          TRACK2P_DATA_PATH: ${{ vars.TRACK2P_DATA_PATH }}
+          TRACK2P_REFERENCE_PATH: ${{ vars.TRACK2P_REFERENCE_PATH }}
+          TRACK2P_REFERENCE_KIND: ${{ vars.TRACK2P_REFERENCE_KIND }}
+          TRACK2P_PLANE: ${{ vars.TRACK2P_PLANE }}
+          TRACK2P_INPUT_FORMAT: ${{ vars.TRACK2P_INPUT_FORMAT }}
+          TRACK2P_INCLUDE_NON_CELLS: ${{ vars.TRACK2P_INCLUDE_NON_CELLS }}
+          TRACK2P_INCLUDE_BEHAVIOR: ${{ vars.TRACK2P_INCLUDE_BEHAVIOR }}
+          TRACK2P_SEED_SESSION: ${{ vars.TRACK2P_SEED_SESSION }}
+          TRACK2P_RESTRICT_TO_REFERENCE_SEED_ROIS: ${{ vars.TRACK2P_RESTRICT_TO_REFERENCE_SEED_ROIS }}
+        run: poetry run python .github/scripts/run_track2p_oracle_benchmark.py
+
+      - name: Upload oracle benchmark results
+        uses: actions/upload-artifact@v7
+        with:
+          name: track2p-oracle-benchmark-results
+          path: benchmark-results/oracle_gt_links.csv
