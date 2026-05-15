@@ -51,6 +51,10 @@ def _handle_benchmark(args: list[str]) -> int:
             "track2p", help="Track2p baseline and global-assignment ablations"
         )
         subparsers.add_parser(
+            "track2p-sweep",
+            help="Sweep Track2p global-assignment cost scales and thresholds",
+        )
+        subparsers.add_parser(
             "registration-qa",
             help="Report registration quality on manual-GT Track2p links",
         )
@@ -71,6 +75,12 @@ def _handle_benchmark(args: list[str]) -> int:
         )
 
         return int(_track2p_benchmark_main(args[1:]))
+    if args[0] == "track2p-sweep":
+        from bayescatrack.experiments.track2p_cost_sweep import (
+            main as _track2p_cost_sweep_main,
+        )
+
+        return int(_track2p_cost_sweep_main(args[1:]))
     if args[0] == "registration-qa":
         from bayescatrack.experiments.registration_qa_report import (
             main as _registration_qa_main,
