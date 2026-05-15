@@ -11,6 +11,7 @@ import numpy as np
 from bayescatrack.association.calibrated_costs import (
     DEFAULT_ASSOCIATION_FEATURES,
     ReferenceTrainingOptions,
+    collect_reference_pairwise_example_blocks,
     collect_reference_training_examples,
     fit_logistic_association_model,
 )
@@ -20,6 +21,11 @@ from bayescatrack.association.pyrecest_global_assignment import (
 )
 from bayescatrack.core.bridge import Track2pSession
 from bayescatrack.evaluation.calibration_diagnostics import calibration_summary
+from bayescatrack.experiments.calibration_hard_negatives import (
+    CandidateHardNegativeOptions,
+    balanced_binary_sample_weights,
+    collect_candidate_limited_training_examples,
+)
 from bayescatrack.experiments.track2p_benchmark import (
     GROUND_TRUTH_REFERENCE_SOURCE,
     ProgressReporter,
@@ -38,7 +44,7 @@ from bayescatrack.reference import Track2pReference
 
 @dataclass(frozen=True)
 class SubjectCalibrationData:
-    """Loaded sessions and Track2p reference identities for one subject."""
+    """Loaded sessions and reference identities for one subject."""
 
     subject_dir: Path
     sessions: tuple[Track2pSession, ...]
@@ -103,20 +109,23 @@ def run_track2p_loso_calibration(
         raise ValueError(
             "LOSO calibration requires method='global-assignment' and cost='calibrated'"
         )
-
     subject_dirs = tuple(discover_subject_dirs(config.data))
     if len(subject_dirs) < 2:
         raise ValueError("LOSO calibration requires at least two subject directories")
 
-    total_steps = len(subject_dirs) + len(subject_dirs) * (len(subject_dirs) + 2)
-    progress = ProgressReporter(total_steps, enabled=config.progress, label="LOSO")
-    subject_data: list[SubjectCalibrationData] = []
+    progress = ProgressReporter(
+        len(subject_dirs) + len(subject_dirs) * (len(subject_dirs) + 2),
+        enabled=config.progress,
+        label="LOSO",
+    )
+    subjects = []
     for subject_dir in subject_dirs:
         progress.step(f"loading {subject_dir.name}")
-        subject_data.append(_load_subject_calibration_data(subject_dir, config=config))
-    subjects = tuple(subject_data)
+        subjects.append(_load_subject_calibration_data(subject_dir, config=config))
+    subjects = tuple(subjects)
     feature_names = tuple(feature_names)
     folds: list[LosoCalibrationFold] = []
+
     for held_out_index, held_out in enumerate(subjects):
         training_subjects = tuple(
             subject for index, subject in enumerate(subjects) if index != held_out_index
@@ -128,12 +137,15 @@ def run_track2p_loso_calibration(
             progress=progress,
             held_out_subject=held_out.subject_name,
         )
+        weights = sample_weight
+        if weights is None:
+            weights = balanced_binary_sample_weights(training_labels)
         progress.step(f"fitting model for {held_out.subject_name}")
         calibrated_model = fit_logistic_association_model(
             training_features,
             training_labels,
             feature_names=feature_names,
-            sample_weight=sample_weight,
+            sample_weight=weights,
             model_kwargs=model_kwargs,
         )
         progress.step(f"scoring calibration for {held_out.subject_name}")
@@ -156,21 +168,18 @@ def run_track2p_loso_calibration(
         scores = _score_prediction_against_reference(
             predicted_matrix, held_out.reference, config=config
         )
+        positives = int(np.sum(training_labels))
         scores = {
             **scores,
             "training_examples": int(training_labels.shape[0]),
-            "positive_examples": int(np.sum(training_labels)),
-            "negative_examples": int(
-                training_labels.shape[0] - np.sum(training_labels)
-            ),
+            "positive_examples": positives,
+            "negative_examples": int(training_labels.shape[0] - positives),
             **calibration_scores,
         }
         folds.append(
             LosoCalibrationFold(
                 held_out_subject=held_out.subject_name,
-                training_subjects=tuple(
-                    subject.subject_name for subject in training_subjects
-                ),
+                training_subjects=tuple(subject.subject_name for subject in training_subjects),
                 benchmark=SubjectBenchmarkResult(
                     subject=held_out.subject_name,
                     variant="Calibrated costs + LOSO global assignment",
@@ -180,10 +189,9 @@ def run_track2p_loso_calibration(
                     reference_source=held_out.reference.source,
                 ),
                 training_examples=int(training_labels.shape[0]),
-                positive_examples=int(np.sum(training_labels)),
+                positive_examples=positives,
             )
         )
-
     return LosoCalibrationResult(
         folds=tuple(folds), feature_names=feature_names, max_gap=int(config.max_gap)
     )
@@ -199,25 +207,20 @@ def _score_holdout_calibration(
     features, labels = collect_reference_training_examples(
         held_out.sessions,
         held_out.reference,
-        session_edges=session_edge_pairs(
-            len(held_out.sessions), max_gap=config.max_gap
-        ),
+        session_edges=session_edge_pairs(len(held_out.sessions), max_gap=config.max_gap),
         options=_reference_training_options(config, feature_names),
     )
     probabilities = np.asarray(
         calibrated_model.model.predict_match_probability(features), dtype=float
     ).reshape(-1)
-    labels = np.asarray(labels).reshape(-1)
-    return calibration_summary(probabilities, labels)
+    return calibration_summary(probabilities, np.asarray(labels).reshape(-1))
 
 
 def _load_subject_calibration_data(
     subject_dir: Path, *, config: Track2pBenchmarkConfig
 ) -> SubjectCalibrationData:
     sessions = tuple(_load_subject_sessions(subject_dir, config))
-    reference = _load_reference_for_subject(
-        subject_dir, data_root=config.data, config=config
-    )
+    reference = _load_reference_for_subject(subject_dir, data_root=config.data, config=config)
     _validate_reference_for_benchmark(reference, subject_dir=subject_dir, config=config)
     if reference.source == GROUND_TRUTH_REFERENCE_SOURCE:
         _validate_reference_roi_indices(reference, sessions)
@@ -226,9 +229,7 @@ def _load_subject_calibration_data(
             f"Subject {subject_dir.name!r} has {len(sessions)} loaded sessions but "
             f"{reference.n_sessions} reference sessions"
         )
-    return SubjectCalibrationData(
-        subject_dir=subject_dir, sessions=sessions, reference=reference
-    )
+    return SubjectCalibrationData(subject_dir=subject_dir, sessions=sessions, reference=reference)
 
 
 # pylint: disable=too-many-arguments
@@ -243,22 +244,23 @@ def _collect_training_examples(
     feature_blocks: list[np.ndarray] = []
     label_blocks: list[np.ndarray] = []
     training_options = _reference_training_options(config, feature_names)
+    hard_negative_options = CandidateHardNegativeOptions()
     for subject in training_subjects:
         if progress is not None:
             progress.step(
                 f"collecting {subject.subject_name} training features for {held_out_subject}"
             )
-        features, labels = collect_reference_training_examples(
+        pairwise_blocks = collect_reference_pairwise_example_blocks(
             subject.sessions,
             subject.reference,
-            session_edges=session_edge_pairs(
-                len(subject.sessions), max_gap=config.max_gap
-            ),
+            session_edges=session_edge_pairs(len(subject.sessions), max_gap=config.max_gap),
             options=training_options,
+        )
+        features, labels = collect_candidate_limited_training_examples(
+            pairwise_blocks, options=hard_negative_options
         )
         feature_blocks.append(features)
         label_blocks.append(labels)
-
     if not feature_blocks:
         raise ValueError("At least one training subject is required")
     return np.concatenate(feature_blocks, axis=0), np.concatenate(label_blocks, axis=0)
