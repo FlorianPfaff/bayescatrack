@@ -100,7 +100,12 @@ def test_track2p_cost_sweep_reuses_costs_and_varies_solver_knobs(
 
     assert len(build_calls) == 1
     assert len(solver_calls) == 4
-    assert [call[1]["cost_threshold"] for call in solver_calls] == [None, 6.0, None, 6.0]
+    assert [call[1]["cost_threshold"] for call in solver_calls] == [
+        None,
+        6.0,
+        None,
+        6.0,
+    ]
     np.testing.assert_allclose(solver_calls[0][0][(0, 1)], [[0.5, 1.0], [5.0, np.inf]])
     np.testing.assert_allclose(solver_calls[3][0][(0, 1)], [[2.0, 4.0], [20.0, np.inf]])
 

@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-
 from bayescatrack.association.pyrecest_global_assignment import (
     _load_pyrecest_multisession_solver,
     build_registered_pairwise_costs,

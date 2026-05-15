@@ -34,7 +34,9 @@ class CandidateHardNegativeOptions:
     def __post_init__(self) -> None:
         ratio = float(self.negative_to_positive_ratio)
         if not np.isfinite(ratio) or ratio < 0.0:
-            raise ValueError("negative_to_positive_ratio must be finite and non-negative")
+            raise ValueError(
+                "negative_to_positive_ratio must be finite and non-negative"
+            )
         object.__setattr__(self, "negative_to_positive_ratio", ratio)
         if self.candidate_top_k_per_anchor is not None:
             top_k = int(self.candidate_top_k_per_anchor)
@@ -44,7 +46,11 @@ class CandidateHardNegativeOptions:
         object.__setattr__(
             self,
             "hardness_feature_names",
-            tuple(() if self.hardness_feature_names is None else self.hardness_feature_names),
+            tuple(
+                ()
+                if self.hardness_feature_names is None
+                else self.hardness_feature_names
+            ),
         )
 
 
