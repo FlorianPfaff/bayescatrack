@@ -1,0 +1,231 @@
+name: Track2p registration QA
+
+on:
+  # checkov:skip=CKV_GHA_7: Manual diagnostic workflow intentionally exposes bounded dispatch inputs and produces only QA artifacts.
+  workflow_dispatch:
+    inputs:
+      raw_data_path:
+        description: "Raw pre-Track2p Suite2p data directory"
+        type: string
+        default: track2p-raw-data-bridge
+        required: true
+      metadata_data_path:
+        description: "Track2p/ground-truth metadata data directory"
+        type: string
+        default: track2p-data
+        required: true
+      max_gap:
+        description: "Maximum session gap"
+        type: string
+        default: "2"
+        required: true
+      cost_threshold:
+        description: "Cost threshold used for admissibility diagnostics"
+        type: string
+        default: "6.0"
+        required: true
+      exclude_subjects:
+        description: "Comma-separated manual-GT subjects to exclude"
+        type: string
+        default: ""
+        required: false
+      python_version:
+        description: "Python version"
+        type: string
+        default: "3.11"
+        required: true
+      runner:
+        description: "Runner label"
+        type: string
+        default: ubuntu-latest
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  registration-qa:
+    name: Registration QA
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 180
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+
+      - name: Install BayesCaTrack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy<3"
+          python -m pip install -e .
+
+      - name: Restore or download raw pre-Track2p Suite2p data
+        uses: ./.github/actions/setup-longitudinaltracking-data
+        with:
+          data_path: ${{ inputs.raw_data_path }}
+          cache_key: longitudinaltrackingraw-webdav-${{ inputs.raw_data_path }}-spatial-v2
+          webdav_url: ${{ secrets.LONGITUDINALTRACKINGRAW_WEBDAV_URL }}
+          webdav_user: ${{ secrets.LONGITUDINALTRACKINGRAW_DATA_KEY }}
+          webdav_password: ${{ secrets.LONGITUDINALTRACKINGRAW_DATA_PASSWORD }}
+          required_file_name: stat.npy
+          rclone_filter_rules: |
+            + **/suite2p/plane0/stat.npy
+            + **/suite2p/plane0/iscell.npy
+            + **/track2p/track_ops.npy
+            + **/track2p/plane0_suite2p_indices.npy
+            - **
+
+      - name: Restore or download Track2p metadata data
+        uses: ./.github/actions/setup-longitudinaltracking-data
+        with:
+          data_path: ${{ inputs.metadata_data_path }}
+          cache_key: longitudinaltracking-webdav-${{ inputs.metadata_data_path }}-metadata-v2
+          webdav_url: ${{ secrets.LONGITUDINALTRACKING_WEBDAV_URL }}
+          webdav_user: ${{ secrets.LONGITUDINALTRACKING_DATA_KEY }}
+          webdav_password: ${{ secrets.LONGITUDINALTRACKING_DATA_PASSWORD }}
+          required_file_name: ground_truth.csv
+          rclone_filter_rules: |
+            + **/ground_truth.csv
+            - **
+
+      - name: Prepare raw Suite2p benchmark tree
+        id: prep
+        env:
+          RAW_DATA_PATH: ${{ inputs.raw_data_path }}
+          METADATA_DATA_PATH: ${{ inputs.metadata_data_path }}
+          EXCLUDE_SUBJECTS: ${{ inputs.exclude_subjects }}
+        run: |
+          mkdir -p results
+          python -m bayescatrack.experiments.track2p_raw_benchmark_data \
+            --raw-root "$RAW_DATA_PATH" \
+            --metadata-root "$METADATA_DATA_PATH" \
+            --output benchmark-raw-suite2p-subjects \
+            --diagnostics-dir results \
+            --exclude-subjects "$EXCLUDE_SUBJECTS" \
+            --min-subjects 1
+
+      - name: Add raw-data diagnostics to job summary
+        run: cat results/raw_suite2p_roi_diagnostics.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run registered-IoU registration QA
+        env:
+          MAX_GAP: ${{ inputs.max_gap }}
+          COST_THRESHOLD: ${{ inputs.cost_threshold }}
+        run: |
+          bayescatrack benchmark registration-qa \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost registered-iou \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --level links \
+            --format csv \
+            --output "results/registration_qa_registered_iou_links_gap${MAX_GAP}.csv"
+          bayescatrack benchmark registration-qa \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost registered-iou \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --level summary \
+            --format csv \
+            --output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.csv"
+          bayescatrack benchmark registration-qa \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost registered-iou \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --level summary \
+            --format table \
+            --output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.md"
+
+      - name: Run ROI-aware registration QA
+        env:
+          MAX_GAP: ${{ inputs.max_gap }}
+          COST_THRESHOLD: ${{ inputs.cost_threshold }}
+        run: |
+          bayescatrack benchmark registration-qa \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost roi-aware \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --weighted-masks \
+            --weighted-centroids \
+            --level links \
+            --format csv \
+            --output "results/registration_qa_roi_aware_links_gap${MAX_GAP}.csv"
+          bayescatrack benchmark registration-qa \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost roi-aware \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --weighted-masks \
+            --weighted-centroids \
+            --level summary \
+            --format csv \
+            --output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.csv"
+          bayescatrack benchmark registration-qa \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost roi-aware \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --weighted-masks \
+            --weighted-centroids \
+            --level summary \
+            --format table \
+            --output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.md"
+
+      - name: Add registration QA summaries to job summary
+        if: always()
+        run: |
+          {
+            echo "## Registered-IoU registration QA"
+            cat "results/registration_qa_registered_iou_summary_gap${{ inputs.max_gap }}.md"
+            echo
+            echo "## ROI-aware registration QA"
+            cat "results/registration_qa_roi_aware_summary_gap${{ inputs.max_gap }}.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload registration QA results
+        if: always() && hashFiles('results/**') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: track2p-registration-qa-gap${{ inputs.max_gap }}
+          path: results/
+          if-no-files-found: error
