@@ -1108,7 +1108,7 @@ diagrams = ["jinja2", "railroad-diagrams"]
 
 [[package]]
 name = "pyrecest"
-version = "2.1.0"
+version = "2.2.0"
 description = "Framework for recursive Bayesian estimation in Python."
 optional = false
 python-versions = ">=3.11,<3.15"
@@ -1134,7 +1134,7 @@ pytorch-support = ["torch"]
 type = "git"
 url = "https://github.com/FlorianPfaff/PyRecEst.git"
 reference = "main"
-resolved_reference = "d41f8f1ecfef7d448e41d1aa03623b83e57d9072"
+resolved_reference = "c6cc3500242a436e647fd3dc1b3f4ee22bb99e2e"
 
 [[package]]
 name = "pyshtools"
