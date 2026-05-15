@@ -73,3 +73,40 @@ def test_registration_qa_report_summarizes_manual_gt_links(
     table = format_registration_qa_table(summary)
     assert "median_registered_iou" in table
     assert "jm001" in table
+
+
+def test_registration_qa_report_tolerates_raw_mask_shape_mismatch(
+    tmp_path,
+    write_raw_npy_session,
+):
+    subject_dir = tmp_path / "jm001"
+    reference_masks = np.zeros((2, 5, 5), dtype=bool)
+    reference_masks[0, 1:3, 1:3] = True
+    reference_masks[1, 3:5, 3:5] = True
+    target_masks = np.zeros((2, 6, 5), dtype=bool)
+    target_masks[:, :5, :] = reference_masks
+    write_raw_npy_session(subject_dir, "2024-05-01_a", reference_masks, offset=0.0)
+    write_raw_npy_session(subject_dir, "2024-05-02_a", target_masks, offset=0.0)
+    _write_ground_truth_csv(
+        subject_dir,
+        ("2024-05-01_a", "2024-05-02_a"),
+        ((0, 0),),
+    )
+
+    rows = run_registration_qa_report(
+        RegistrationQAConfig(
+            data=subject_dir,
+            reference_kind="manual-gt",
+            input_format="npy",
+            transform_type="affine",
+            max_gap=1,
+            cost="registered-iou",
+        )
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["target_roi_present"] is True
+    assert rows[0]["raw_mask_shape_matches"] is False
+    assert np.isnan(rows[0]["raw_iou"])
+    assert rows[0]["registered_iou"] == pytest.approx(1.0)
+    assert rows[0]["gt_candidate_admissible"] is True
