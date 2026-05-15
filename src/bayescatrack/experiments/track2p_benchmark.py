@@ -768,7 +768,9 @@ def _score_prediction_against_reference(
             seed_session=config.seed_session,
         )
 
-    scores = _with_recomputed_f1_scores(score_track_matrices(predicted, reference_matrix))
+    scores = _with_recomputed_f1_scores(
+        score_track_matrices(predicted, reference_matrix)
+    )
     if config.restrict_to_reference_seed_rois:
         scores = {
             **scores,
@@ -794,7 +796,9 @@ def _with_recomputed_f1_scores(
     return repaired_scores
 
 
-def _f1_from_counts(true_positives: int, false_positives: int, false_negatives: int) -> float:
+def _f1_from_counts(
+    true_positives: int, false_positives: int, false_negatives: int
+) -> float:
     denominator = 2 * true_positives + false_positives + false_negatives
     if denominator == 0:
         return 1.0

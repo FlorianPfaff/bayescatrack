@@ -344,8 +344,10 @@ class CalciumPlaneData:
             roi_feature_cost = zero_cost
 
         if (
-            cell_probability_weight > 0.0 or return_components
-        ) and self.cell_probabilities is not None and other.cell_probabilities is not None:
+            (cell_probability_weight > 0.0 or return_components)
+            and self.cell_probabilities is not None
+            and other.cell_probabilities is not None
+        ):
             probabilities_self = np.clip(
                 self.cell_probabilities, similarity_epsilon, 1.0
             )
@@ -1363,13 +1365,14 @@ def _pairwise_sparse_mask_dot(
 
     reference_index = 0
     measurement_index = 0
-    while reference_index < reference_pixel.size and measurement_index < measurement_pixel.size:
+    while (
+        reference_index < reference_pixel.size
+        and measurement_index < measurement_pixel.size
+    ):
         reference_current_pixel = reference_pixel[reference_index]
         measurement_current_pixel = measurement_pixel[measurement_index]
         if reference_current_pixel < measurement_current_pixel:
-            reference_index = _advance_equal_values(
-                reference_pixel, reference_index
-            )
+            reference_index = _advance_equal_values(reference_pixel, reference_index)
             continue
         if measurement_current_pixel < reference_current_pixel:
             measurement_index = _advance_equal_values(

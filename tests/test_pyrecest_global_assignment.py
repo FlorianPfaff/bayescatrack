@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.testing as npt
-
 from bayescatrack.association import pyrecest_global_assignment as global_assignment
 from bayescatrack.association.registered_masks import replace_empty_registered_masks
 
