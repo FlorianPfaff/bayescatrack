@@ -195,6 +195,32 @@ def test_benchmark_uses_ground_truth_csv_reference(tmp_path, write_raw_npy_sessi
     assert result["complete_track_f1"] == pytest.approx(1.0)
 
 
+def test_oracle_gt_links_reconstructs_complete_tracks(tmp_path, write_raw_npy_session):
+    subject_dir = tmp_path / "jm006"
+    _write_subject(subject_dir, write_raw_npy_session, write_reference=False)
+    _write_ground_truth_csv(
+        subject_dir,
+        ("2024-05-01_a", "2024-05-02_a", "2024-05-03_a"),
+        ((0, 1, 0), (1, 0, 1)),
+    )
+
+    rows = run_track2p_benchmark(
+        Track2pBenchmarkConfig(
+            data=subject_dir,
+            method="oracle-gt-links",
+            reference_kind="manual-gt",
+        )
+    )
+
+    assert len(rows) == 1
+    result = rows[0].to_dict()
+    assert result["variant"] == "Oracle GT consecutive links"
+    assert result["reference_source"] == "ground_truth_csv"
+    assert result["pairwise_f1"] == pytest.approx(1.0)
+    assert result["complete_track_f1"] == pytest.approx(1.0)
+    assert result["complete_tracks"] == 2
+
+
 def test_benchmark_recomputes_f1_from_counts_when_no_links_match(
     tmp_path, write_raw_npy_session
 ):
