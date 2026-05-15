@@ -22,6 +22,7 @@ from bayescatrack.association.pyrecest_global_assignment import (
 )
 from bayescatrack.association.registered_masks import replace_empty_registered_masks
 from bayescatrack.core.bridge import (
+    CalciumPlaneData,
     Track2pSession,
     build_session_pair_association_bundle,
 )
@@ -316,9 +317,8 @@ def _audit_subject(
         registered_plane, empty_registered_rois = replace_empty_registered_masks(
             registered_plane
         )
-        raw_bundle = _association_bundle(
-            reference_session,
-            target_session,
+        raw_components = _raw_pairwise_components(
+            reference_session.plane_data,
             target_session.plane_data,
             config,
         )
@@ -336,7 +336,7 @@ def _audit_subject(
                 reference_session,
                 target_session,
                 reference_matrix,
-                raw_bundle.pairwise_components,
+                raw_components,
                 registered_bundle.pairwise_components,
                 np.asarray(registered_bundle.pairwise_cost_matrix, dtype=float),
                 empty_registered_rois,
@@ -405,6 +405,12 @@ def _audit_reference_links(
                 "transform_type": config.transform_type,
                 "source_roi": int(source_roi),
                 "target_roi": int(target_roi),
+                "source_roi_present": True,
+                "target_roi_present": True,
+                "raw_mask_shape_matches": (
+                    source_session.plane_data.image_shape
+                    == target_session.plane_data.image_shape
+                ),
                 "raw_iou": _component_value(
                     raw_components, "iou", source_local, target_local
                 ),
@@ -471,6 +477,34 @@ def _association_bundle(
         pairwise_cost_kwargs=_cost_kwargs(config),
         return_pairwise_components=True,
     )
+
+
+def _raw_pairwise_components(
+    reference_plane: CalciumPlaneData,
+    target_plane: CalciumPlaneData,
+    config: RegistrationQAConfig,
+) -> dict[str, np.ndarray]:
+    component_shape = (reference_plane.n_rois, target_plane.n_rois)
+    components: dict[str, np.ndarray] = {
+        "centroid_distance": reference_plane.pairwise_centroid_distances(
+            target_plane,
+            order=config.order,
+            weighted=config.weighted_centroids,
+        )
+    }
+    if reference_plane.image_shape != target_plane.image_shape:
+        components["iou"] = np.full(component_shape, np.nan, dtype=float)
+        return components
+
+    _, raw_components = reference_plane.build_pairwise_cost_matrix(
+        target_plane,
+        order=config.order,
+        weighted_centroids=config.weighted_centroids,
+        return_components=True,
+        **_cost_kwargs(config),
+    )
+    components.update(raw_components)
+    return components
 
 
 def _cost_kwargs(config: RegistrationQAConfig) -> dict[str, Any]:
