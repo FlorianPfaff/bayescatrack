@@ -5,8 +5,10 @@ from __future__ import annotations
 import csv
 import os
 from pathlib import Path
+from typing import cast
 
 from bayescatrack.experiments.track2p_benchmark import (
+    ReferenceKind,
     Track2pBenchmarkConfig,
     run_track2p_benchmark,
     write_results,
@@ -28,7 +30,10 @@ def main() -> int:
     config = Track2pBenchmarkConfig(
         data=Path(os.environ["TRACK2P_DATA_PATH"]),
         reference=Path(os.environ["TRACK2P_REFERENCE_PATH"]),
-        reference_kind=os.environ.get("TRACK2P_REFERENCE_KIND", "manual-gt"),
+        reference_kind=cast(
+            ReferenceKind,
+            os.environ.get("TRACK2P_REFERENCE_KIND", "manual-gt"),
+        ),
         method="oracle-gt-links",
         plane_name=os.environ.get("TRACK2P_PLANE", "plane0"),
         input_format=os.environ.get("TRACK2P_INPUT_FORMAT", "auto"),

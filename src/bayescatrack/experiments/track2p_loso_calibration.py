@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
 from bayescatrack.association.calibrated_costs import (
     DEFAULT_ASSOCIATION_FEATURES,
     ReferenceTrainingOptions,
@@ -118,11 +119,11 @@ def run_track2p_loso_calibration(
         enabled=config.progress,
         label="LOSO",
     )
-    subjects = []
+    subject_list: list[SubjectCalibrationData] = []
     for subject_dir in subject_dirs:
         progress.step(f"loading {subject_dir.name}")
-        subjects.append(_load_subject_calibration_data(subject_dir, config=config))
-    subjects = tuple(subjects)
+        subject_list.append(_load_subject_calibration_data(subject_dir, config=config))
+    subjects = tuple(subject_list)
     feature_names = tuple(feature_names)
     folds: list[LosoCalibrationFold] = []
 
@@ -179,7 +180,9 @@ def run_track2p_loso_calibration(
         folds.append(
             LosoCalibrationFold(
                 held_out_subject=held_out.subject_name,
-                training_subjects=tuple(subject.subject_name for subject in training_subjects),
+                training_subjects=tuple(
+                    subject.subject_name for subject in training_subjects
+                ),
                 benchmark=SubjectBenchmarkResult(
                     subject=held_out.subject_name,
                     variant="Calibrated costs + LOSO global assignment",
@@ -207,7 +210,9 @@ def _score_holdout_calibration(
     features, labels = collect_reference_training_examples(
         held_out.sessions,
         held_out.reference,
-        session_edges=session_edge_pairs(len(held_out.sessions), max_gap=config.max_gap),
+        session_edges=session_edge_pairs(
+            len(held_out.sessions), max_gap=config.max_gap
+        ),
         options=_reference_training_options(config, feature_names),
     )
     probabilities = np.asarray(
@@ -220,7 +225,9 @@ def _load_subject_calibration_data(
     subject_dir: Path, *, config: Track2pBenchmarkConfig
 ) -> SubjectCalibrationData:
     sessions = tuple(_load_subject_sessions(subject_dir, config))
-    reference = _load_reference_for_subject(subject_dir, data_root=config.data, config=config)
+    reference = _load_reference_for_subject(
+        subject_dir, data_root=config.data, config=config
+    )
     _validate_reference_for_benchmark(reference, subject_dir=subject_dir, config=config)
     if reference.source == GROUND_TRUTH_REFERENCE_SOURCE:
         _validate_reference_roi_indices(reference, sessions)
@@ -229,7 +236,9 @@ def _load_subject_calibration_data(
             f"Subject {subject_dir.name!r} has {len(sessions)} loaded sessions but "
             f"{reference.n_sessions} reference sessions"
         )
-    return SubjectCalibrationData(subject_dir=subject_dir, sessions=sessions, reference=reference)
+    return SubjectCalibrationData(
+        subject_dir=subject_dir, sessions=sessions, reference=reference
+    )
 
 
 # pylint: disable=too-many-arguments
@@ -253,7 +262,9 @@ def _collect_training_examples(
         pairwise_blocks = collect_reference_pairwise_example_blocks(
             subject.sessions,
             subject.reference,
-            session_edges=session_edge_pairs(len(subject.sessions), max_gap=config.max_gap),
+            session_edges=session_edge_pairs(
+                len(subject.sessions), max_gap=config.max_gap
+            ),
             options=training_options,
         )
         features, labels = collect_candidate_limited_training_examples(

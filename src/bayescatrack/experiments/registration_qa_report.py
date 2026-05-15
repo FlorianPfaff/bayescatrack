@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+
 from bayescatrack.association.pyrecest_global_assignment import (
     registered_iou_cost_kwargs,
     roi_aware_cost_kwargs,
@@ -74,7 +75,9 @@ def run_registration_qa_report(config: RegistrationQAConfig) -> list[dict[str, A
 
     subject_dirs = discover_subject_dirs(config.data)
     if not subject_dirs:
-        raise ValueError(f"No Track2p-style subject directories found under {config.data}")
+        raise ValueError(
+            f"No Track2p-style subject directories found under {config.data}"
+        )
 
     benchmark_config = _benchmark_config(config)
     rows: list[dict[str, Any]] = []
@@ -113,7 +116,9 @@ def summarize_registration_qa_links(
 ) -> list[dict[str, Any]]:
     """Aggregate link-level QA rows by subject and session edge."""
 
-    grouped: dict[tuple[str, str, str, int], list[Mapping[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str, int], list[Mapping[str, Any]]] = defaultdict(
+        list
+    )
     for row in rows:
         key = (
             str(row["subject"]),
@@ -124,7 +129,9 @@ def summarize_registration_qa_links(
         grouped[key].append(row)
 
     summary: list[dict[str, Any]] = []
-    for (subject, source_name, target_name, session_gap), group in sorted(grouped.items()):
+    for (subject, source_name, target_name, session_gap), group in sorted(
+        grouped.items()
+    ):
         summary.append(
             {
                 "subject": subject,
@@ -186,7 +193,9 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
         "| " + " | ".join(["---"] * len(columns)) + " |",
     ]
     for row in rows:
-        body.append("| " + " | ".join(_format_value(row.get(col, "")) for col in columns) + " |")
+        body.append(
+            "| " + " | ".join(_format_value(row.get(col, "")) for col in columns) + " |"
+        )
     return "\n".join(body)
 
 
@@ -199,7 +208,9 @@ def write_registration_qa_results(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_format == "json":
-        output_path.write_text(json.dumps(list(rows), indent=2) + "\n", encoding="utf-8")
+        output_path.write_text(
+            json.dumps(list(rows), indent=2) + "\n", encoding="utf-8"
+        )
         return
     if output_format == "csv":
         with output_path.open("w", newline="", encoding="utf-8") as handle:
@@ -222,16 +233,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=("auto", "manual-gt", "track2p-output", "aligned-subject-rows"),
     )
-    parser.add_argument("--allow-track2p-as-reference-for-smoke-test", action="store_true")
+    parser.add_argument(
+        "--allow-track2p-as-reference-for-smoke-test", action="store_true"
+    )
     parser.add_argument("--curated-only", action="store_true")
     parser.add_argument("--plane", dest="plane_name", default="plane0")
-    parser.add_argument("--input-format", default="auto", choices=("auto", "suite2p", "npy"))
+    parser.add_argument(
+        "--input-format", default="auto", choices=("auto", "suite2p", "npy")
+    )
     parser.add_argument("--max-gap", type=int, default=2)
-    parser.add_argument("--transform-type", default="affine", choices=("affine", "rigid", "none"))
-    parser.add_argument("--cost", default="registered-iou", choices=("registered-iou", "roi-aware"))
+    parser.add_argument(
+        "--transform-type", default="affine", choices=("affine", "rigid", "none")
+    )
+    parser.add_argument(
+        "--cost", default="registered-iou", choices=("registered-iou", "roi-aware")
+    )
     parser.add_argument("--cost-threshold", type=float, default=6.0)
     parser.add_argument("--no-cost-threshold", action="store_true")
-    parser.add_argument("--include-behavior", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--include-behavior", action=argparse.BooleanOptionalAction, default=True
+    )
     parser.add_argument("--include-non-cells", action="store_true")
     parser.add_argument("--cell-probability-threshold", type=float, default=0.5)
     parser.add_argument("--weighted-masks", action="store_true")
@@ -246,7 +267,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--regularization", type=float, default=1.0e-6)
     parser.add_argument("--pairwise-cost-kwargs-json", default=None)
     parser.add_argument("--level", default="summary", choices=("summary", "links"))
-    parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--progress", action=argparse.BooleanOptionalAction, default=True
+    )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--format", default="table", choices=("table", "json", "csv"))
     return parser
@@ -254,7 +277,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
-    rows: Sequence[Mapping[str, Any]] = run_registration_qa_report(_config_from_args(args))
+    rows: Sequence[Mapping[str, Any]] = run_registration_qa_report(
+        _config_from_args(args)
+    )
     if args.level == "summary":
         rows = summarize_registration_qa_links(rows)
 
@@ -278,7 +303,9 @@ def _audit_subject(
     config: RegistrationQAConfig,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for source_index, target_index in session_edge_pairs(len(sessions), max_gap=config.max_gap):
+    for source_index, target_index in session_edge_pairs(
+        len(sessions), max_gap=config.max_gap
+    ):
         reference_session = sessions[source_index]
         target_session = sessions[target_index]
         registered_plane = register_plane_pair(
@@ -356,7 +383,9 @@ def _audit_reference_links(
         )
         target_empty = bool(empty_registered_rois[target_local])
         target_gated = bool(
-            _component_value(registered_components, "gated", source_local, target_local, False)
+            _component_value(
+                registered_components, "gated", source_local, target_local, False
+            )
         )
         below_threshold = (
             True
@@ -376,7 +405,9 @@ def _audit_reference_links(
                 "transform_type": config.transform_type,
                 "source_roi": int(source_roi),
                 "target_roi": int(target_roi),
-                "raw_iou": _component_value(raw_components, "iou", source_local, target_local),
+                "raw_iou": _component_value(
+                    raw_components, "iou", source_local, target_local
+                ),
                 "registered_iou": _component_value(
                     registered_components,
                     "iou",
@@ -402,7 +433,9 @@ def _audit_reference_links(
                 "best_cost": float(cost_row[best_target_local]),
                 "best_false_cost": best_false_cost,
                 "cost_margin": (
-                    best_false_cost - gt_cost if np.isfinite(best_false_cost) else np.nan
+                    best_false_cost - gt_cost
+                    if np.isfinite(best_false_cost)
+                    else np.nan
                 ),
                 "target_empty_registered_mask": target_empty,
                 "target_gated": target_gated,
@@ -564,7 +597,7 @@ def _mode(rows: Sequence[Mapping[str, Any]], key: str) -> str:
         counts[str(row.get(key, ""))] += 1
     if not counts:
         return ""
-    return max(counts, key=counts.get)
+    return max(counts, key=lambda value: counts[value])
 
 
 def _csv_fieldnames(rows: Sequence[Mapping[str, Any]]) -> list[str]:

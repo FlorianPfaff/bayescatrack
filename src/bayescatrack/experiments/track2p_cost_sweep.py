@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
 from bayescatrack.association.pyrecest_global_assignment import (
     _load_pyrecest_multisession_solver,
     build_registered_pairwise_costs,
@@ -62,12 +63,16 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
     if benchmark.split != "subject":
         raise ValueError("Track2p cost sweeps currently support split='subject' only")
     if benchmark.cost == "calibrated":
-        raise ValueError("cost='calibrated' requires LOSO training and is not supported by this sweep")
+        raise ValueError(
+            "cost='calibrated' requires LOSO training and is not supported by this sweep"
+        )
 
     runs = _sweep_runs(config.cost_scales, config.cost_thresholds)
     subject_dirs = discover_subject_dirs(benchmark.data)
     if not subject_dirs:
-        raise ValueError(f"No Track2p-style subject directories found under {benchmark.data}")
+        raise ValueError(
+            f"No Track2p-style subject directories found under {benchmark.data}"
+        )
 
     results: list[SubjectBenchmarkResult] = []
     progress = ProgressReporter(
@@ -77,7 +82,9 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
         reference = _load_reference_for_subject(
             subject_dir, data_root=benchmark.data, config=benchmark
         )
-        _validate_reference_for_benchmark(reference, subject_dir=subject_dir, config=benchmark)
+        _validate_reference_for_benchmark(
+            reference, subject_dir=subject_dir, config=benchmark
+        )
         sessions = _load_subject_sessions(subject_dir, benchmark)
         if reference.source == GROUND_TRUTH_REFERENCE_SOURCE:
             _validate_reference_roi_indices(reference, sessions)
@@ -109,7 +116,11 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
                 cost_threshold=run.threshold,
             )
             predicted = tracks_to_suite2p_index_matrix(solver_result.tracks, sessions)
-            scores = _score_prediction_against_reference(predicted, reference, config=benchmark)
+            scores: dict[str, float | int | str] = dict(
+                _score_prediction_against_reference(
+                    predicted, reference, config=benchmark
+                )
+            )
             scores = {
                 **scores,
                 "sweep_index": int(run.sweep_index),
@@ -237,7 +248,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=("auto", "manual-gt", "track2p-output", "aligned-subject-rows"),
     )
-    parser.add_argument("--allow-track2p-as-reference-for-smoke-test", action="store_true")
+    parser.add_argument(
+        "--allow-track2p-as-reference-for-smoke-test", action="store_true"
+    )
     parser.add_argument("--curated-only", action="store_true")
     parser.add_argument("--seed-session", type=int, default=0)
     parser.add_argument(
@@ -269,19 +282,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         required=True,
         help="Comma-separated thresholds; use none to disable thresholding",
     )
-    parser.add_argument("--include-behavior", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--include-behavior", action=argparse.BooleanOptionalAction, default=True
+    )
     parser.add_argument("--include-non-cells", action="store_true")
     parser.add_argument("--cell-probability-threshold", type=float, default=0.5)
     parser.add_argument("--weighted-masks", action="store_true")
     parser.add_argument(
-        "--exclude-overlapping-pixels", action=argparse.BooleanOptionalAction, default=True
+        "--exclude-overlapping-pixels",
+        action=argparse.BooleanOptionalAction,
+        default=True,
     )
     parser.add_argument("--order", default="xy", choices=("xy", "yx"))
     parser.add_argument("--weighted-centroids", action="store_true")
     parser.add_argument("--velocity-variance", type=float, default=25.0)
     parser.add_argument("--regularization", type=float, default=1.0e-6)
     parser.add_argument("--pairwise-cost-kwargs-json", default=None)
-    parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--progress", action=argparse.BooleanOptionalAction, default=True
+    )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     return parser
@@ -358,8 +377,7 @@ def _parse_thresholds(raw: str) -> tuple[float | None, ...]:
 
 def _parse_float_tokens(raw: str, *, name: str) -> tuple[float, ...]:
     return tuple(
-        _parse_finite_float(token, name=name)
-        for token in _split_tokens(raw, name=name)
+        _parse_finite_float(token, name=name) for token in _split_tokens(raw, name=name)
     )
 
 

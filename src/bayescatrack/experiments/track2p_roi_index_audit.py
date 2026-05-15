@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
+
 from bayescatrack.core.bridge import Track2pSession
 from bayescatrack.experiments.track2p_benchmark import (
     GROUND_TRUTH_REFERENCE_SOURCE,
@@ -78,15 +79,27 @@ class RoiIndexAuditRow:
             "n_loaded_rois_with_non_cells": int(self.n_loaded_rois_with_non_cells),
             "n_gt_rois": int(self.n_gt_rois),
             "max_gt_roi_index": self.max_gt_roi_index,
-            "n_gt_rois_missing_from_loaded_indices": int(self.n_gt_rois_missing_from_loaded_indices),
-            "n_gt_rois_missing_with_include_non_cells": int(self.n_gt_rois_missing_with_include_non_cells),
-            "missing_gt_roi_examples": " ".join(str(value) for value in self.missing_gt_roi_examples),
-            "include_non_cells_resolves_mismatch": bool(self.include_non_cells_resolves_mismatch),
+            "n_gt_rois_missing_from_loaded_indices": int(
+                self.n_gt_rois_missing_from_loaded_indices
+            ),
+            "n_gt_rois_missing_with_include_non_cells": int(
+                self.n_gt_rois_missing_with_include_non_cells
+            ),
+            "missing_gt_roi_examples": " ".join(
+                str(value) for value in self.missing_gt_roi_examples
+            ),
+            "include_non_cells_resolves_mismatch": bool(
+                self.include_non_cells_resolves_mismatch
+            ),
             "gt_fits_loaded_indices": bool(self.gt_fits_loaded_indices),
             "gt_fits_loaded_cell_indices": bool(self.gt_fits_loaded_cell_indices),
-            "gt_fits_include_non_cells_indices": bool(self.gt_fits_include_non_cells_indices),
+            "gt_fits_include_non_cells_indices": bool(
+                self.gt_fits_include_non_cells_indices
+            ),
             "gt_fits_raw_stat_row_space": self.gt_fits_raw_stat_row_space,
-            "gt_fits_filtered_cell_ordinal_space": bool(self.gt_fits_filtered_cell_ordinal_space),
+            "gt_fits_filtered_cell_ordinal_space": bool(
+                self.gt_fits_filtered_cell_ordinal_space
+            ),
             "gt_index_space": self.gt_index_space,
             "compatible": bool(self.compatible),
         }
@@ -139,7 +152,9 @@ class ManualGtRoiIndexAuditResult:
         return [row.to_dict() for row in self.rows]
 
 
-def run_manual_gt_roi_index_audit(config: ManualGtRoiIndexAuditConfig) -> ManualGtRoiIndexAuditResult:
+def run_manual_gt_roi_index_audit(
+    config: ManualGtRoiIndexAuditConfig,
+) -> ManualGtRoiIndexAuditResult:
     """Audit whether manual-GT ROI IDs match loaded Suite2p/Track2p index spaces."""
 
     benchmark_config = Track2pBenchmarkConfig(
@@ -160,11 +175,15 @@ def run_manual_gt_roi_index_audit(config: ManualGtRoiIndexAuditConfig) -> Manual
 
     subject_dirs = discover_subject_dirs(config.data)
     if not subject_dirs:
-        raise ValueError(f"No Track2p-style subject directories found under {config.data}")
+        raise ValueError(
+            f"No Track2p-style subject directories found under {config.data}"
+        )
 
     rows: list[RoiIndexAuditRow] = []
     for subject_dir in subject_dirs:
-        reference = _load_reference_for_subject(subject_dir, data_root=config.data, config=benchmark_config)
+        reference = _load_reference_for_subject(
+            subject_dir, data_root=config.data, config=benchmark_config
+        )
         if reference.source != GROUND_TRUTH_REFERENCE_SOURCE:
             raise ValueError(
                 f"Subject {subject_dir.name!r} resolved reference source {reference.source!r}, not independent manual ground truth. "
@@ -172,9 +191,19 @@ def run_manual_gt_roi_index_audit(config: ManualGtRoiIndexAuditConfig) -> Manual
             )
 
         loaded_sessions = tuple(_load_subject_sessions(subject_dir, benchmark_config))
-        loaded_cell_sessions = tuple(_load_subject_sessions(subject_dir, loaded_cell_config))
-        include_non_cell_sessions = tuple(_load_subject_sessions(subject_dir, include_non_cell_config))
-        _validate_session_alignment(subject_dir.name, reference, loaded_sessions, loaded_cell_sessions, include_non_cell_sessions)
+        loaded_cell_sessions = tuple(
+            _load_subject_sessions(subject_dir, loaded_cell_config)
+        )
+        include_non_cell_sessions = tuple(
+            _load_subject_sessions(subject_dir, include_non_cell_config)
+        )
+        _validate_session_alignment(
+            subject_dir.name,
+            reference,
+            loaded_sessions,
+            loaded_cell_sessions,
+            include_non_cell_sessions,
+        )
 
         for session_index, session in enumerate(loaded_sessions):
             rows.append(
@@ -192,12 +221,16 @@ def run_manual_gt_roi_index_audit(config: ManualGtRoiIndexAuditConfig) -> Manual
     return ManualGtRoiIndexAuditResult(rows=tuple(rows))
 
 
-def write_audit_result(result: ManualGtRoiIndexAuditResult, output_path: Path, output_format: OutputFormat) -> None:
+def write_audit_result(
+    result: ManualGtRoiIndexAuditResult, output_path: Path, output_format: OutputFormat
+) -> None:
     """Write audit diagnostics to ``output_path``."""
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_format == "json":
-        output_path.write_text(json.dumps(result.to_rows(), indent=2) + "\n", encoding="utf-8")
+        output_path.write_text(
+            json.dumps(result.to_rows(), indent=2) + "\n", encoding="utf-8"
+        )
         return
     if output_format == "csv":
         with output_path.open("w", encoding="utf-8", newline="") as handle:
@@ -218,7 +251,9 @@ def format_audit_markdown(result: ManualGtRoiIndexAuditResult) -> str:
         f"- subjects: `{','.join(result.subjects)}`",
         f"- incompatible_subjects: `{','.join(result.incompatible_subjects)}`",
         "",
-        "| subject | session | stat rows | loaded ROIs | loaded cells | loaded with non-cells | GT ROIs | max GT index | missing | missing with non-cells | index space | compatible |",
+        "| subject | session | stat rows | loaded ROIs | loaded cells | "
+        "loaded with non-cells | GT ROIs | max GT index | missing | "
+        "missing with non-cells | index space | compatible |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for row in result.rows:
@@ -252,25 +287,68 @@ def build_arg_parser() -> argparse.ArgumentParser:
         prog="bayescatrack benchmark audit-manual-gt-rois",
         description="Audit manual-GT ROI index spaces before Track2p benchmark runs.",
     )
-    parser.add_argument("--data", required=True, type=Path, help="Track2p data root or one subject directory")
-    parser.add_argument("--reference", type=Path, default=None, help="Optional ground_truth.csv file/root")
+    parser.add_argument(
+        "--data",
+        required=True,
+        type=Path,
+        help="Track2p data root or one subject directory",
+    )
+    parser.add_argument(
+        "--reference",
+        type=Path,
+        default=None,
+        help="Optional ground_truth.csv file/root",
+    )
     parser.add_argument(
         "--reference-kind",
         default="manual-gt",
         choices=("auto", "manual-gt", "track2p-output", "aligned-subject-rows"),
         help="Reference kind to resolve; manual-gt is recommended for paper-facing audits",
     )
-    parser.add_argument("--plane", dest="plane_name", default="plane0", help="Plane name such as plane0")
-    parser.add_argument("--input-format", default="auto", choices=("auto", "suite2p", "npy"), help="Input format for loading sessions")
-    parser.add_argument("--include-behavior", action=argparse.BooleanOptionalAction, default=False, help="Load behavior arrays when present")
-    parser.add_argument("--include-non-cells", action=argparse.BooleanOptionalAction, default=False, help="Use this ROI filtering policy for the compatibility column")
+    parser.add_argument(
+        "--plane", dest="plane_name", default="plane0", help="Plane name such as plane0"
+    )
+    parser.add_argument(
+        "--input-format",
+        default="auto",
+        choices=("auto", "suite2p", "npy"),
+        help="Input format for loading sessions",
+    )
+    parser.add_argument(
+        "--include-behavior",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Load behavior arrays when present",
+    )
+    parser.add_argument(
+        "--include-non-cells",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use this ROI filtering policy for the compatibility column",
+    )
     parser.add_argument("--cell-probability-threshold", type=float, default=0.5)
     parser.add_argument("--weighted-masks", action="store_true")
-    parser.add_argument("--exclude-overlapping-pixels", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--exclude-overlapping-pixels",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--missing-preview-limit", type=int, default=20)
-    parser.add_argument("--output", type=Path, default=None, help="Optional output file")
-    parser.add_argument("--format", choices=("markdown", "table", "json", "csv"), default="markdown", help="Stdout/output format")
-    parser.add_argument("--fail-on-incompatible", action=argparse.BooleanOptionalAction, default=False, help="Return exit code 1 when any manual-GT ROI IDs are missing")
+    parser.add_argument(
+        "--output", type=Path, default=None, help="Optional output file"
+    )
+    parser.add_argument(
+        "--format",
+        choices=("markdown", "table", "json", "csv"),
+        default="markdown",
+        help="Stdout/output format",
+    )
+    parser.add_argument(
+        "--fail-on-incompatible",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Return exit code 1 when any manual-GT ROI IDs are missing",
+    )
     return parser
 
 
@@ -314,10 +392,14 @@ def _validate_session_alignment(
         "include-non-cell": include_non_cell_sessions,
     }.items():
         if len(sessions) != expected:
-            raise ValueError(f"Subject {subject!r} has {len(sessions)} {label} sessions, but the reference has {expected} sessions")
+            raise ValueError(
+                f"Subject {subject!r} has {len(sessions)} {label} sessions, but the reference has {expected} sessions"
+            )
         session_names = tuple(session.session_name for session in sessions)
         if session_names != reference.session_names:
-            raise ValueError(f"Subject {subject!r} {label} session order {session_names!r} does not match reference order {reference.session_names!r}")
+            raise ValueError(
+                f"Subject {subject!r} {label} session order {session_names!r} does not match reference order {reference.session_names!r}"
+            )
 
 
 def _audit_row_for_session(
@@ -333,7 +415,9 @@ def _audit_row_for_session(
     loaded_indices = _roi_index_set(session)
     loaded_cell_indices = _roi_index_set(loaded_cell_session)
     include_non_cell_indices = _roi_index_set(include_non_cell_session)
-    gt_indices = _valid_reference_roi_values(reference.suite2p_indices[:, session_index])
+    gt_indices = _valid_reference_roi_values(
+        reference.suite2p_indices[:, session_index]
+    )
     missing_loaded = sorted(gt_indices - loaded_indices)
     missing_include_non_cells = sorted(gt_indices - include_non_cell_indices)
     n_stat_rows = _count_stat_rows(session)
@@ -341,8 +425,12 @@ def _audit_row_for_session(
     gt_fits_loaded = gt_indices.issubset(loaded_indices)
     gt_fits_loaded_cells = gt_indices.issubset(loaded_cell_indices)
     gt_fits_include_non_cells = gt_indices.issubset(include_non_cell_indices)
-    gt_fits_raw_stat = None if n_stat_rows is None else _fits_ordinal_space(gt_indices, n_stat_rows)
-    gt_fits_filtered_cell_ordinals = _fits_ordinal_space(gt_indices, len(loaded_cell_indices))
+    gt_fits_raw_stat = (
+        None if n_stat_rows is None else _fits_ordinal_space(gt_indices, n_stat_rows)
+    )
+    gt_fits_filtered_cell_ordinals = _fits_ordinal_space(
+        gt_indices, len(loaded_cell_indices)
+    )
     gt_index_space = _classify_index_space(
         gt_indices=gt_indices,
         n_stat_rows=n_stat_rows,
@@ -365,7 +453,9 @@ def _audit_row_for_session(
         n_gt_rois_missing_from_loaded_indices=len(missing_loaded),
         n_gt_rois_missing_with_include_non_cells=len(missing_include_non_cells),
         missing_gt_roi_examples=tuple(missing_loaded[:missing_preview_limit]),
-        include_non_cells_resolves_mismatch=bool(missing_loaded and not missing_include_non_cells),
+        include_non_cells_resolves_mismatch=bool(
+            missing_loaded and not missing_include_non_cells
+        ),
         gt_fits_loaded_indices=gt_fits_loaded,
         gt_fits_loaded_cell_indices=gt_fits_loaded_cells,
         gt_fits_include_non_cells_indices=gt_fits_include_non_cells,
@@ -425,15 +515,23 @@ def _classify_index_space(
     gt_fits_loaded = gt_indices.issubset(loaded_indices)
     gt_fits_loaded_cells = gt_indices.issubset(loaded_cell_indices)
     gt_fits_include_non_cells = gt_indices.issubset(include_non_cell_indices)
-    gt_fits_raw_stat_space = False if n_stat_rows is None else _fits_ordinal_space(gt_indices, n_stat_rows)
-    gt_fits_filtered_cell_ordinals = _fits_ordinal_space(gt_indices, len(loaded_cell_indices))
+    gt_fits_raw_stat_space = (
+        False if n_stat_rows is None else _fits_ordinal_space(gt_indices, n_stat_rows)
+    )
+    gt_fits_filtered_cell_ordinals = _fits_ordinal_space(
+        gt_indices, len(loaded_cell_indices)
+    )
 
     if gt_fits_loaded and gt_fits_loaded_cells:
-        return "raw_stat_rows_loaded" if n_stat_rows is not None else "loaded_roi_indices"
+        return (
+            "raw_stat_rows_loaded" if n_stat_rows is not None else "loaded_roi_indices"
+        )
     if gt_fits_loaded and gt_fits_include_non_cells:
         if gt_fits_filtered_cell_ordinals:
             return "raw_stat_rows_or_filtered_cell_ordinals"
-        return "raw_stat_rows_loaded" if n_stat_rows is not None else "loaded_roi_indices"
+        return (
+            "raw_stat_rows_loaded" if n_stat_rows is not None else "loaded_roi_indices"
+        )
     if gt_fits_include_non_cells:
         if gt_fits_filtered_cell_ordinals:
             return "raw_stat_rows_or_filtered_cell_ordinals"
@@ -475,7 +573,9 @@ def _fieldnames(rows: Sequence[dict[str, int | str | bool | None]]) -> list[str]
     return [key for key in preferred if any(key in row for row in rows)] + extra
 
 
-def _write_stdout(result: ManualGtRoiIndexAuditResult, output_format: OutputFormat) -> None:
+def _write_stdout(
+    result: ManualGtRoiIndexAuditResult, output_format: OutputFormat
+) -> None:
     if output_format == "json":
         print(json.dumps(result.to_rows(), indent=2))
         return
