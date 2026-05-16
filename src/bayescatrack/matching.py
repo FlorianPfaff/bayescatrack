@@ -282,7 +282,12 @@ def build_track_rows_from_bundles(
     start_session_index: int = 0,
     fill_value: int = -1,
 ) -> tuple[tuple[str, ...], np.ndarray, list[SessionMatchResult]]:
-    """Solve consecutive bundles and stitch them into wide track rows."""
+    """Solve consecutive bundles and stitch them into wide track rows.
+
+    ``max_cost`` is forwarded to :func:`solve_bundle_linear_assignment`.
+    Omitting it keeps the default assignment gate; passing ``None`` explicitly
+    disables cost gating and keeps every finite Hungarian assignment.
+    """
 
     bundles = list(bundles)
     if not bundles:

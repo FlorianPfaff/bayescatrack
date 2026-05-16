@@ -174,7 +174,9 @@ def run_registered_subject_tracking(
 
     The returned ``track_rows`` matrix has one row per started track and one
     column per session. Entries are Suite2p ROI indices. Missing links are filled
-    with ``fill_value``.
+    with ``fill_value``. ``assignment_max_cost`` defaults to the package-wide
+    pairwise assignment gate; pass ``None`` explicitly to disable assignment-cost
+    gating.
     """
 
     sessions = _load_subject_sessions(
