@@ -465,6 +465,7 @@ def _predict_subject_tracks(
             oracle_ground_truth_link_tracks(
                 reference,
                 curated_only=config.curated_only,
+                seed_session=config.seed_session,
             ),
             "Oracle GT consecutive links",
         )
@@ -482,6 +483,7 @@ def oracle_ground_truth_link_tracks(
     reference: Track2pReference,
     *,
     curated_only: bool = False,
+    seed_session: int = 0,
 ) -> np.ndarray:
     """Build an oracle prediction by stitching consecutive GT pairwise links.
 
@@ -494,11 +496,7 @@ def oracle_ground_truth_link_tracks(
 
     reference_matrix = _reference_matrix(reference, curated_only=curated_only)
     start_roi_indices = sorted(
-        {
-            int(row[0])
-            for row in reference_matrix
-            if row[0] is not None and int(row[0]) >= 0
-        }
+        _reference_seed_roi_set(reference_matrix, seed_session=seed_session)
     )
 
     if reference.n_sessions == 1:
@@ -516,6 +514,7 @@ def oracle_ground_truth_link_tracks(
         reference.session_names,
         consecutive_matches,
         start_roi_indices=start_roi_indices,
+        start_session_index=seed_session,
         fill_value=-1,
     )
 
@@ -762,9 +761,14 @@ def _score_prediction_against_reference(
         reference_seed_rois = _reference_seed_roi_set(
             reference_matrix, seed_session=config.seed_session
         )
-        predicted = _filter_tracks_by_reference_seed_rois(
+        predicted = _filter_tracks_by_seed_rois(
             predicted,
+            reference_seed_rois,
+            seed_session=config.seed_session,
+        )
+        reference_matrix = _filter_tracks_by_seed_rois(
             reference_matrix,
+            reference_seed_rois,
             seed_session=config.seed_session,
         )
 
@@ -805,31 +809,42 @@ def _f1_from_counts(
     return float(2 * true_positives / denominator)
 
 
-def _filter_tracks_by_reference_seed_rois(
+def _filter_tracks_by_seed_rois(
     predicted_matrix: np.ndarray,
-    reference_matrix: np.ndarray,
+    seed_rois: set[int],
     *,
     seed_session: int,
 ) -> np.ndarray:
-    reference_seed_rois = _reference_seed_roi_set(
-        reference_matrix, seed_session=seed_session
-    )
-    if not reference_seed_rois:
+    if not seed_rois:
         return predicted_matrix[:0]
-    keep = [row[seed_session] in reference_seed_rois for row in predicted_matrix]
+    keep = [
+        _is_valid_roi_index(row[seed_session]) and int(row[seed_session]) in seed_rois
+        for row in predicted_matrix
+    ]
     return predicted_matrix[np.asarray(keep, dtype=bool)]
 
 
-def _reference_seed_roi_set(
-    reference_matrix: np.ndarray, *, seed_session: int
-) -> set[int]:
+def _reference_seed_roi_set(reference_matrix: np.ndarray, *, seed_session: int) -> set[int]:
     if seed_session < 0 or seed_session >= reference_matrix.shape[1]:
         raise IndexError(
             f"seed_session {seed_session} out of bounds for {reference_matrix.shape[1]} sessions"
         )
     return {
-        int(value) for value in reference_matrix[:, seed_session] if value is not None
+        int(value)
+        for value in reference_matrix[:, seed_session]
+        if _is_valid_roi_index(value)
     }
+
+
+def _is_valid_roi_index(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (float, np.floating)) and np.isnan(value):
+        return False
+    try:
+        return int(value) >= 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _load_aligned_reference_for_config(
@@ -882,7 +897,7 @@ def _validate_reference_roi_indices(
         referenced_indices = {
             int(value)
             for value in reference.suite2p_indices[:, session_index]
-            if value is not None
+            if _is_valid_roi_index(value)
         }
         missing_indices = sorted(referenced_indices - available_indices)
         if missing_indices:
