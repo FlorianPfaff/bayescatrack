@@ -4,7 +4,7 @@ SHOW_ELAPSED_TIME: true
 
 PRE_COMMANDS:
   - command: cat /etc/os-release
-  - command: pip install $GITHUB_WORKSPACE/alpine-wheels/*
+  - command: pip install --upgrade pip && pip install -e "$GITHUB_WORKSPACE" pytest
     venv: pylint
 
 PYTHON_PYLINT_CONFIG_FILE: .pylintrc
