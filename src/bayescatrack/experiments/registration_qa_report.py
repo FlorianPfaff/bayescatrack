@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-
 from bayescatrack.association.pyrecest_global_assignment import (
     registered_iou_cost_kwargs,
     roi_aware_cost_kwargs,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from bayescatrack.association.calibrated_costs import ReferencePairwiseExamples
 from bayescatrack.experiments.calibration_hard_negatives import (
     CandidateHardNegativeOptions,
@@ -28,9 +27,7 @@ def _example_block() -> ReferencePairwiseExamples:
         ],
         dtype=float,
     )
-    features = np.stack(
-        [centroid, one_minus_iou, np.ones_like(centroid)], axis=-1
-    )
+    features = np.stack([centroid, one_minus_iou, np.ones_like(centroid)], axis=-1)
     labels = np.eye(3, dtype=int)
     return ReferencePairwiseExamples(
         session_a=0,
@@ -57,7 +54,9 @@ def test_candidate_limited_hard_negatives_keep_all_positives_and_hard_negatives(
     assert int(np.sum(labels == 1)) == 3
     assert int(np.sum(labels == 0)) == 3
     assert features.shape == (6, 3)
-    selected_centroid_distances = sorted(float(value) for value in features[labels == 0, 0])
+    selected_centroid_distances = sorted(
+        float(value) for value in features[labels == 0, 0]
+    )
     assert selected_centroid_distances == [0.1, 0.2, 0.3]
 
 

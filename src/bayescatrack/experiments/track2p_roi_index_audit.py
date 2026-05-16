@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-
 from bayescatrack.core.bridge import Track2pSession
 from bayescatrack.experiments.track2p_benchmark import (
     GROUND_TRUTH_REFERENCE_SOURCE,
