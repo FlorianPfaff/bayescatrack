@@ -40,6 +40,9 @@ class CostSweepConfig:
     benchmark: Track2pBenchmarkConfig
     cost_scales: tuple[float, ...]
     cost_thresholds: tuple[float | None, ...]
+    start_costs: tuple[float, ...] = ()
+    end_costs: tuple[float, ...] = ()
+    gap_penalties: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,9 @@ class CostSweepRun:
 
     scale: float
     threshold: float | None
+    start_cost: float
+    end_cost: float
+    gap_penalty: float
     sweep_index: int
     sweep_count: int
 
@@ -66,7 +72,13 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
             "cost='calibrated' requires LOSO training and is not supported by this sweep"
         )
 
-    runs = _sweep_runs(config.cost_scales, config.cost_thresholds)
+    runs = _sweep_runs(
+        config.cost_scales,
+        config.cost_thresholds,
+        _defaulted_positive_values(config.start_costs, (benchmark.start_cost,)),
+        _defaulted_positive_values(config.end_costs, (benchmark.end_cost,)),
+        _defaulted_nonnegative_values(config.gap_penalties, (benchmark.gap_penalty,)),
+    )
     subject_dirs = discover_subject_dirs(benchmark.data)
     if not subject_dirs:
         raise ValueError(
@@ -109,9 +121,9 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
             solver_result = _load_pyrecest_multisession_solver()(
                 scaled_costs,
                 session_sizes=session_sizes,
-                start_cost=float(benchmark.start_cost),
-                end_cost=float(benchmark.end_cost),
-                gap_penalty=float(benchmark.gap_penalty),
+                start_cost=run.start_cost,
+                end_cost=run.end_cost,
+                gap_penalty=run.gap_penalty,
                 cost_threshold=run.threshold,
             )
             predicted = tracks_to_suite2p_index_matrix(solver_result.tracks, sessions)
@@ -126,6 +138,9 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
                 "sweep_count": int(run.sweep_count),
                 "cost_scale": float(run.scale),
                 "cost_threshold": _threshold_label(run.threshold),
+                "start_cost": float(run.start_cost),
+                "end_cost": float(run.end_cost),
+                "gap_penalty": float(run.gap_penalty),
                 **_pairwise_cost_statistics(scaled_costs, run.threshold),
             }
             results.append(
@@ -142,22 +157,35 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
 
 
 def _sweep_runs(
-    cost_scales: Sequence[float], cost_thresholds: Sequence[float | None]
+    cost_scales: Sequence[float],
+    cost_thresholds: Sequence[float | None],
+    start_costs: Sequence[float],
+    end_costs: Sequence[float],
+    gap_penalties: Sequence[float],
 ) -> tuple[CostSweepRun, ...]:
     scales = _normalise_cost_scales(cost_scales)
     thresholds = _normalise_cost_thresholds(cost_thresholds)
-    sweep_count = len(scales) * len(thresholds)
+    starts = _normalise_positive_values(start_costs, name="Start costs")
+    ends = _normalise_positive_values(end_costs, name="End costs")
+    gaps = _normalise_nonnegative_values(gap_penalties, name="Gap penalties")
+    sweep_count = len(scales) * len(thresholds) * len(starts) * len(ends) * len(gaps)
     runs: list[CostSweepRun] = []
     for scale in scales:
         for threshold in thresholds:
-            runs.append(
-                CostSweepRun(
-                    scale=scale,
-                    threshold=threshold,
-                    sweep_index=len(runs) + 1,
-                    sweep_count=sweep_count,
-                )
-            )
+            for start_cost in starts:
+                for end_cost in ends:
+                    for gap_penalty in gaps:
+                        runs.append(
+                            CostSweepRun(
+                                scale=scale,
+                                threshold=threshold,
+                                start_cost=start_cost,
+                                end_cost=end_cost,
+                                gap_penalty=gap_penalty,
+                                sweep_index=len(runs) + 1,
+                                sweep_count=sweep_count,
+                            )
+                        )
     return tuple(runs)
 
 
@@ -268,6 +296,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--end-cost", type=float, default=5.0)
     parser.add_argument("--gap-penalty", type=float, default=1.0)
     parser.add_argument(
+        "--start-costs",
+        "--start-cost-sweep",
+        dest="start_costs",
+        default=None,
+        help="Optional comma-separated start costs; defaults to --start-cost",
+    )
+    parser.add_argument(
+        "--end-costs",
+        "--end-cost-sweep",
+        dest="end_costs",
+        default=None,
+        help="Optional comma-separated end costs; defaults to --end-cost",
+    )
+    parser.add_argument(
+        "--gap-penalties",
+        "--gap-penalty-sweep",
+        dest="gap_penalties",
+        default=None,
+        help="Optional comma-separated gap penalties; defaults to --gap-penalty",
+    )
+    parser.add_argument(
         "--cost-scales",
         "--cost-scale-sweep",
         dest="cost_scales",
@@ -357,6 +406,21 @@ def _config_from_args(args: argparse.Namespace) -> CostSweepConfig:
         benchmark=benchmark,
         cost_scales=_parse_cost_scales(args.cost_scales),
         cost_thresholds=_parse_thresholds(args.cost_thresholds),
+        start_costs=(
+            _parse_positive_values(args.start_costs, name="--start-costs")
+            if args.start_costs is not None
+            else ()
+        ),
+        end_costs=(
+            _parse_positive_values(args.end_costs, name="--end-costs")
+            if args.end_costs is not None
+            else ()
+        ),
+        gap_penalties=(
+            _parse_nonnegative_values(args.gap_penalties, name="--gap-penalties")
+            if args.gap_penalties is not None
+            else ()
+        ),
     )
 
 
@@ -378,6 +442,14 @@ def _parse_float_tokens(raw: str, *, name: str) -> tuple[float, ...]:
     return tuple(
         _parse_finite_float(token, name=name) for token in _split_tokens(raw, name=name)
     )
+
+
+def _parse_positive_values(raw: str, *, name: str) -> tuple[float, ...]:
+    return _normalise_positive_values(_parse_float_tokens(raw, name=name), name=name)
+
+
+def _parse_nonnegative_values(raw: str, *, name: str) -> tuple[float, ...]:
+    return _normalise_nonnegative_values(_parse_float_tokens(raw, name=name), name=name)
 
 
 def _split_tokens(raw: str, *, name: str) -> tuple[str, ...]:
@@ -417,6 +489,38 @@ def _normalise_cost_thresholds(
     return thresholds
 
 
+def _defaulted_positive_values(
+    values: Sequence[float], defaults: Sequence[float]
+) -> tuple[float, ...]:
+    return _normalise_positive_values(values or defaults, name="Solver costs")
+
+
+def _defaulted_nonnegative_values(
+    values: Sequence[float], defaults: Sequence[float]
+) -> tuple[float, ...]:
+    return _normalise_nonnegative_values(values or defaults, name="Solver penalties")
+
+
+def _normalise_positive_values(values: Sequence[float], *, name: str) -> tuple[float, ...]:
+    normalised = tuple(float(value) for value in values)
+    if not normalised:
+        raise ValueError(f"At least one {name} value is required")
+    if any((not np.isfinite(value)) or value <= 0.0 for value in normalised):
+        raise ValueError(f"{name} values must be positive finite numbers")
+    return normalised
+
+
+def _normalise_nonnegative_values(
+    values: Sequence[float], *, name: str
+) -> tuple[float, ...]:
+    normalised = tuple(float(value) for value in values)
+    if not normalised:
+        raise ValueError(f"At least one {name} value is required")
+    if any((not np.isfinite(value)) or value < 0.0 for value in normalised):
+        raise ValueError(f"{name} values must be non-negative finite numbers")
+    return normalised
+
+
 def write_sweep_results(
     rows: Sequence[dict[str, float | int | str]], output_path: Path, output_format: str
 ) -> None:
@@ -454,6 +558,9 @@ def format_sweep_table(rows: Sequence[dict[str, float | int | str]]) -> str:
         "subject",
         "cost_scale",
         "cost_threshold",
+        "start_cost",
+        "end_cost",
+        "gap_penalty",
         "cost_median",
         "cost_p90",
         "cost_threshold_admitted_fraction",
@@ -485,6 +592,9 @@ def _sweep_fieldnames(rows: Sequence[dict[str, float | int | str]]) -> list[str]
         "sweep_count",
         "cost_scale",
         "cost_threshold",
+        "start_cost",
+        "end_cost",
+        "gap_penalty",
         "cost_edges",
         "cost_values",
         "cost_finite_values",
