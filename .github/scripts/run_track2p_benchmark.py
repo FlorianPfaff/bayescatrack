@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from bayescatrack.dependency_pins import PYRECEST_COMMIT, PYRECEST_REPOSITORY
 from bayescatrack.experiments.benchmark_manifest import (
     load_benchmark_manifest,
     run_benchmark_manifest,
@@ -160,6 +161,8 @@ def main() -> int:
         "subjects": [path.name for path in subject_dirs],
         "n_subjects": len(subject_dirs),
         "run_calibrated_loso": run_calibrated_loso,
+        "pyrecest_repository": PYRECEST_REPOSITORY,
+        "pyrecest_commit": PYRECEST_COMMIT,
     }
 
     manifest_path = results_dir / "track2p_benchmark_manifest.json"
