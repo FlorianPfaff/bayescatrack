@@ -207,9 +207,9 @@ def summarize_registration_qa_links(
 ) -> list[dict[str, Any]]:
     """Aggregate link-level QA rows by subject and session edge."""
 
-    grouped: dict[
-        tuple[str, str, str, str, int], list[Mapping[str, Any]]
-    ] = defaultdict(list)
+    grouped: dict[tuple[str, str, str, str, int], list[Mapping[str, Any]]] = (
+        defaultdict(list)
+    )
     for row in rows:
         key = (
             str(row.get("cost", "")),
@@ -624,12 +624,16 @@ def _audit_subject(
                 registered_bundle,
                 session_gap=target_index - source_index,
             )
-            probability_matrix = calibrated_model.pairwise_probability_matrix_from_bundle(
-                registered_bundle,
-                session_gap=target_index - source_index,
+            probability_matrix = (
+                calibrated_model.pairwise_probability_matrix_from_bundle(
+                    registered_bundle,
+                    session_gap=target_index - source_index,
+                )
             )
         else:
-            cost_matrix = np.asarray(registered_bundle.pairwise_cost_matrix, dtype=float)
+            cost_matrix = np.asarray(
+                registered_bundle.pairwise_cost_matrix, dtype=float
+            )
         rows.extend(
             _audit_reference_links(
                 subject,
@@ -797,9 +801,7 @@ def _audit_reference_links(
                 "false_cost_median": _array_stat(finite_false_costs, 50),
                 "false_cost_p90": _array_stat(finite_false_costs, 90),
                 "cost_margin": (
-                    false_cost_min - gt_cost
-                    if np.isfinite(false_cost_min)
-                    else np.nan
+                    false_cost_min - gt_cost if np.isfinite(false_cost_min) else np.nan
                 ),
                 "target_empty_registered_mask": target_empty,
                 "target_gated": target_gated,
@@ -1048,8 +1050,7 @@ def _registration_metadata(
     ops = {} if registered_plane.ops is None else dict(registered_plane.ops)
     source = str(registered_plane.source)
     backend = str(
-        ops.get("registration_backend")
-        or _registration_backend(transform_type, source)
+        ops.get("registration_backend") or _registration_backend(transform_type, source)
     )
     return {
         "registration_backend": backend,
@@ -1084,7 +1085,9 @@ def _registration_backend_reason(transform_type: str, backend: str, source: str)
         return "registered plane source contains 'fov_registered'"
     if backend == "track2p-elastix":
         return "registered plane source contains 'registered' without 'fov_registered'"
-    return f"could not infer registration backend from registered plane source {source!r}"
+    return (
+        f"could not infer registration backend from registered plane source {source!r}"
+    )
 
 
 def _fov_translation_shift_component(

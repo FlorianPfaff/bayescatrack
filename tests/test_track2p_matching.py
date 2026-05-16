@@ -40,9 +40,7 @@ def test_build_track_rows_from_later_seed_session_stitches_both_directions():
 
 
 def test_solve_bundle_linear_assignment_uses_default_cost_gate():
-    result = solve_bundle_linear_assignment(
-        _Bundle([[0.0, 100.0], [100.0, 100.0]])
-    )
+    result = solve_bundle_linear_assignment(_Bundle([[0.0, 100.0], [100.0, 100.0]]))
 
     npt.assert_array_equal(result.reference_roi_indices, np.array([10]))
     npt.assert_array_equal(result.measurement_roi_indices, np.array([100]))
