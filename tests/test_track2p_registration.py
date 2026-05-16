@@ -18,7 +18,7 @@ def test_track2p_registration_public_functions_are_importable():
 def test_register_plane_pair_none_uses_masks_without_track2p_backend(
     make_track2p_session,
 ):
-    masks = np.zeros((2, 4, 4), dtype=bool)
+    masks: np.ndarray = np.zeros((2, 4, 4), dtype=bool)
     masks[0, 0:2, 0:2] = True
     masks[1, 2:4, 2:4] = True
     session = make_track2p_session("2024-05-01_a", masks)
@@ -35,7 +35,7 @@ def test_register_plane_pair_none_uses_masks_without_track2p_backend(
 def test_register_plane_pair_uses_explicit_fov_translation(
     make_track2p_session,
 ):
-    reference_masks = np.zeros((1, 6, 6), dtype=bool)
+    reference_masks: np.ndarray = np.zeros((1, 6, 6), dtype=bool)
     reference_masks[0, 1:4, 2:5] = True
     moving_masks = np.zeros_like(reference_masks)
     moving_masks[0] = apply_integer_image_translation(
@@ -53,6 +53,17 @@ def test_register_plane_pair_uses_explicit_fov_translation(
     )
 
     npt.assert_array_equal(registered.roi_masks, reference_masks)
+    assert registered.source == "raw_npy_fov_registered"
+    assert registered.ops is not None
+    assert registered.ops["registration_backend"] == "fov-translation"
+    assert registered.ops["registration_transform_type"] == "fov-translation"
+    assert registered.ops["registration_backend_reason"] == (
+        "explicit transform_type='fov-translation'"
+    )
+    npt.assert_array_equal(
+        registered.ops["fov_registration_measurement_to_reference_shift_yx"],
+        np.array([-1, 1]),
+    )
 
 
 def test_register_plane_pair_affine_rigid_do_not_fall_back_to_fov_translation(
@@ -61,7 +72,7 @@ def test_register_plane_pair_affine_rigid_do_not_fall_back_to_fov_translation(
 ):
     import bayescatrack.track2p_registration as registration
 
-    masks = np.zeros((1, 6, 6), dtype=bool)
+    masks: np.ndarray = np.zeros((1, 6, 6), dtype=bool)
     masks[0, 1:4, 2:5] = True
     fov = masks.sum(axis=0, dtype=float)
     reference = make_track2p_session("2024-05-01_a", masks, fov=fov)

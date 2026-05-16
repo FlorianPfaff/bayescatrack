@@ -24,6 +24,11 @@ on:
         type: string
         default: "6.0"
         required: true
+      run_calibrated_loso:
+        description: "Also run calibrated LOSO edge diagnostics"
+        type: boolean
+        default: false
+        required: true
       exclude_subjects:
         description: "Comma-separated manual-GT subjects to exclude"
         type: string
@@ -110,6 +115,8 @@ jobs:
             --output benchmark-raw-suite2p-subjects \
             --diagnostics-dir results \
             --exclude-subjects "$EXCLUDE_SUBJECTS" \
+            --no-require-track2p-suite2p-indices \
+            --filter-missing-manual-rois \
             --min-subjects 1
 
       - name: Add raw-data diagnostics to job summary
@@ -128,11 +135,14 @@ jobs:
             --include-non-cells \
             --no-include-behavior \
             --cost registered-iou \
+            --transform-type fov-translation \
             --max-gap "$MAX_GAP" \
             --cost-threshold "$COST_THRESHOLD" \
             --links-output "results/registration_qa_registered_iou_links_gap${MAX_GAP}.csv" \
             --summary-csv-output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.csv" \
-            --summary-table-output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.md"
+            --summary-table-output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.md" \
+            --backend-audit-csv-output "results/registration_backend_audit_registered_iou_gap${MAX_GAP}.csv" \
+            --backend-audit-table-output "results/registration_backend_audit_registered_iou_gap${MAX_GAP}.md"
 
       - name: Run ROI-aware registration QA
         env:
@@ -147,21 +157,67 @@ jobs:
             --include-non-cells \
             --no-include-behavior \
             --cost roi-aware \
+            --transform-type fov-translation \
             --max-gap "$MAX_GAP" \
             --cost-threshold "$COST_THRESHOLD" \
             --links-output "results/registration_qa_roi_aware_links_gap${MAX_GAP}.csv" \
             --summary-csv-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.csv" \
-            --summary-table-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.md"
+            --summary-table-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.md" \
+            --backend-audit-csv-output "results/registration_backend_audit_roi_aware_gap${MAX_GAP}.csv" \
+            --backend-audit-table-output "results/registration_backend_audit_roi_aware_gap${MAX_GAP}.md"
+
+      - name: Run calibrated LOSO registration QA
+        if: ${{ inputs.run_calibrated_loso }}
+        env:
+          MAX_GAP: ${{ inputs.max_gap }}
+          COST_THRESHOLD: ${{ inputs.cost_threshold }}
+        run: |
+          python .github/scripts/run_registration_qa.py \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost calibrated \
+            --transform-type fov-translation \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --links-output "results/registration_qa_calibrated_links_gap${MAX_GAP}.csv" \
+            --summary-csv-output "results/registration_qa_calibrated_summary_gap${MAX_GAP}.csv" \
+            --summary-table-output "results/registration_qa_calibrated_summary_gap${MAX_GAP}.md" \
+            --backend-audit-csv-output "results/registration_backend_audit_calibrated_gap${MAX_GAP}.csv" \
+            --backend-audit-table-output "results/registration_backend_audit_calibrated_gap${MAX_GAP}.md"
 
       - name: Add registration QA summaries to job summary
         if: always()
         run: |
+          append_file() {
+            if [ -f "$1" ]; then
+              cat "$1"
+            else
+              echo "_Not generated._"
+            fi
+          }
           {
             echo "## Registered-IoU registration QA"
-            cat "results/registration_qa_registered_iou_summary_gap${{ inputs.max_gap }}.md"
+            append_file "results/registration_qa_registered_iou_summary_gap${{ inputs.max_gap }}.md"
             echo
             echo "## ROI-aware registration QA"
-            cat "results/registration_qa_roi_aware_summary_gap${{ inputs.max_gap }}.md"
+            append_file "results/registration_qa_roi_aware_summary_gap${{ inputs.max_gap }}.md"
+            echo
+            echo "## Calibrated LOSO registration QA"
+            append_file "results/registration_qa_calibrated_summary_gap${{ inputs.max_gap }}.md"
+            echo
+            echo "## Registration backend audit"
+            echo "### Registered-IoU"
+            append_file "results/registration_backend_audit_registered_iou_gap${{ inputs.max_gap }}.md"
+            echo
+            echo "### ROI-aware"
+            append_file "results/registration_backend_audit_roi_aware_gap${{ inputs.max_gap }}.md"
+            echo
+            echo "### Calibrated LOSO"
+            append_file "results/registration_backend_audit_calibrated_gap${{ inputs.max_gap }}.md"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload registration QA results

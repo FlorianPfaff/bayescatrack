@@ -340,8 +340,8 @@ def fit_logistic_association_model(
 ) -> CalibratedAssociationModel:
     """Fit PyRecEst's logistic pairwise association model and keep its feature schema."""
 
-    LogisticPairwiseAssociationModel = load_logistic_pairwise_association_model()
-    model = LogisticPairwiseAssociationModel(**dict(model_kwargs or {}))
+    model_class = load_logistic_pairwise_association_model()
+    model = model_class(**dict(model_kwargs or {}))
     model.fit(features, labels, sample_weight=sample_weight)
     return CalibratedAssociationModel(model=model, feature_names=tuple(feature_names))
 

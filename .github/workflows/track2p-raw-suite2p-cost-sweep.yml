@@ -140,6 +140,8 @@ jobs:
             --output benchmark-raw-suite2p-subjects \
             --diagnostics-dir results \
             --exclude-subjects "$EXCLUDE_SUBJECTS" \
+            --no-require-track2p-suite2p-indices \
+            --filter-missing-manual-rois \
             --min-subjects 1
 
       - name: Add raw-data diagnostics to job summary
@@ -163,6 +165,7 @@ jobs:
             --include-non-cells \
             --no-include-behavior \
             --cost "$COST" \
+            --transform-type fov-translation \
             --max-gap "$MAX_GAP" \
             --cost-scales "$COST_SCALES" \
             --cost-thresholds "$COST_THRESHOLDS" \
@@ -170,6 +173,7 @@ jobs:
             --end-costs "$END_COSTS" \
             --gap-penalties "$GAP_PENALTIES" \
             --format csv \
+            --write-incrementally \
             --output "results/solver_cost_sweep_${COST}_gap${MAX_GAP}.csv"
 
       - name: Summarize best sweep rows

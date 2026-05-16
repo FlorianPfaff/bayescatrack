@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import csv
+
 import numpy as np
 import pytest
 from bayescatrack.experiments import track2p_cost_sweep as sweep_module
-from bayescatrack.experiments.track2p_benchmark import Track2pBenchmarkConfig
+from bayescatrack.experiments.track2p_benchmark import (
+    SubjectBenchmarkResult,
+    Track2pBenchmarkConfig,
+)
 from bayescatrack.experiments.track2p_cost_sweep import (
     CostSweepConfig,
     _parse_cost_scales,
@@ -12,6 +17,7 @@ from bayescatrack.experiments.track2p_cost_sweep import (
     _parse_thresholds,
     format_sweep_table,
     run_track2p_cost_sweep,
+    write_sweep_results_incrementally,
 )
 
 
@@ -143,7 +149,7 @@ def test_track2p_cost_sweep_varies_start_end_and_gap(
         matched_edges = []
         total_cost = 0.0
 
-    def fake_solver(pairwise_costs, **kwargs):
+    def fake_solver(_pairwise_costs, **kwargs):
         solver_calls.append(kwargs)
         return SolverResult()
 
@@ -190,6 +196,38 @@ def test_cost_sweep_parser_accepts_none_thresholds():
     assert _parse_thresholds("none,2,6") == (None, 2.0, 6.0)
     assert _parse_positive_values("0.5,2", name="--start-costs") == (0.5, 2.0)
     assert _parse_nonnegative_values("0,1", name="--gap-penalties") == (0.0, 1.0)
+
+
+def test_write_sweep_results_incrementally_writes_csv_rows(tmp_path):
+    rows = [
+        SubjectBenchmarkResult(
+            subject="jm001",
+            variant="registered_iou",
+            method="global-assignment",
+            scores={
+                "sweep_index": index,
+                "sweep_count": 2,
+                "cost_scale": 1.0,
+                "cost_threshold": 4.0,
+                "start_cost": 0.25,
+                "end_cost": 5.0,
+                "gap_penalty": 1.0,
+                "pairwise_f1": pairwise_f1,
+                "complete_track_f1": 0.0,
+            },
+            n_sessions=3,
+            reference_source="manual_gt",
+        )
+        for index, pairwise_f1 in [(1, 0.25), (2, 0.5)]
+    ]
+    output = tmp_path / "sweep.csv"
+
+    rows_written = write_sweep_results_incrementally(rows, output)
+
+    assert rows_written == 2
+    parsed_rows = list(csv.DictReader(output.open(newline="", encoding="utf-8")))
+    assert [row["sweep_index"] for row in parsed_rows] == ["1", "2"]
+    assert [row["pairwise_f1"] for row in parsed_rows] == ["0.25", "0.5"]
 
 
 @pytest.mark.parametrize("raw", ["0", "-1", "nan", "1,"])

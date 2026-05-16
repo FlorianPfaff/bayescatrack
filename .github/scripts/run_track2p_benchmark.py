@@ -89,7 +89,7 @@ def main() -> int:
         "include_non_cells": _bool_env("TRACK2P_INCLUDE_NON_CELLS", default=True),
         "include_behavior": _bool_env("TRACK2P_INCLUDE_BEHAVIOR"),
         "max_gap": _int_env("TRACK2P_MAX_GAP", default=2),
-        "transform_type": os.environ.get("TRACK2P_TRANSFORM_TYPE", "affine"),
+        "transform_type": os.environ.get("TRACK2P_TRANSFORM_TYPE", "fov-translation"),
         "seed_session": _int_env("TRACK2P_SEED_SESSION", default=0),
         "restrict_to_reference_seed_rois": _bool_env(
             "TRACK2P_RESTRICT_TO_REFERENCE_SEED_ROIS", default=True

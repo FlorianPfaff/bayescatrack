@@ -147,6 +147,7 @@ jobs:
             --no-include-behavior \
             --method global-assignment \
             --cost registered-iou \
+            --transform-type fov-translation \
             --max-gap "${{ inputs.max_gap }}" \
             --format csv \
             --output results/global_registered_iou_gap${{ inputs.max_gap }}.csv
@@ -162,6 +163,7 @@ jobs:
             --no-include-behavior \
             --method global-assignment \
             --cost roi-aware \
+            --transform-type fov-translation \
             --max-gap "${{ inputs.max_gap }}" \
             --weighted-masks \
             --weighted-centroids \
@@ -181,6 +183,7 @@ jobs:
             --method global-assignment \
             --cost calibrated \
             --split leave-one-subject-out \
+            --transform-type fov-translation \
             --max-gap "${{ inputs.max_gap }}" \
             --format csv \
             --output results/global_calibrated_loso_gap${{ inputs.max_gap }}.csv

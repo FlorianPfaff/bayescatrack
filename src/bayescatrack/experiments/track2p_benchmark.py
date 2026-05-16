@@ -9,7 +9,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 from bayescatrack.association.calibrated_costs import CalibratedAssociationModel
@@ -327,7 +327,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--transform-type",
         default="affine",
-        choices=("affine", "rigid", "none"),
+        choices=("affine", "rigid", "fov-translation", "none"),
         help="Track2p registration transform type",
     )
     parser.add_argument(
@@ -830,7 +830,7 @@ def _reference_seed_roi_set(reference_matrix: np.ndarray, *, seed_session: int) 
             f"seed_session {seed_session} out of bounds for {reference_matrix.shape[1]} sessions"
         )
     return {
-        int(value)
+        int(cast(Any, value))
         for value in reference_matrix[:, seed_session]
         if _is_valid_roi_index(value)
     }
@@ -842,7 +842,7 @@ def _is_valid_roi_index(value: object) -> bool:
     if isinstance(value, (float, np.floating)) and np.isnan(value):
         return False
     try:
-        return int(value) >= 0
+        return int(cast(Any, value)) >= 0
     except (TypeError, ValueError):
         return False
 

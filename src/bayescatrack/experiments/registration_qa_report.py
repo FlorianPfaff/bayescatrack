@@ -14,6 +14,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+from bayescatrack.association.activity_similarity import (
+    add_activity_similarity_components,
+)
+from bayescatrack.association.calibrated_costs import (
+    DEFAULT_ASSOCIATION_FEATURES,
+    CalibratedAssociationModel,
+    fit_logistic_association_model,
+)
 from bayescatrack.association.pyrecest_global_assignment import (
     registered_iou_cost_kwargs,
     roi_aware_cost_kwargs,
@@ -37,8 +45,8 @@ from bayescatrack.experiments.track2p_benchmark import (
 )
 from bayescatrack.track2p_registration import register_plane_pair
 
-RegistrationQACost = Literal["registered-iou", "roi-aware"]
-RegistrationQALevel = Literal["summary", "links"]
+RegistrationQACost = Literal["registered-iou", "roi-aware", "calibrated"]
+RegistrationQALevel = Literal["summary", "links", "backend-audit"]
 OutputFormat = Literal["table", "json", "csv"]
 
 
@@ -72,6 +80,9 @@ class RegistrationQAConfig:
 
 def run_registration_qa_report(config: RegistrationQAConfig) -> list[dict[str, Any]]:
     """Return one diagnostics row for each manual-GT link and audited edge."""
+
+    if config.cost == "calibrated":
+        return _run_calibrated_loso_registration_qa_report(config)
 
     subject_dirs = discover_subject_dirs(config.data)
     if not subject_dirs:
@@ -111,16 +122,97 @@ def run_registration_qa_report(config: RegistrationQAConfig) -> list[dict[str, A
     return rows
 
 
+def _run_calibrated_loso_registration_qa_report(
+    config: RegistrationQAConfig,
+) -> list[dict[str, Any]]:
+    """Return held-out edge diagnostics for LOSO calibrated costs."""
+
+    from bayescatrack.experiments.track2p_loso_calibration import (
+        _collect_training_examples,
+        _load_subject_calibration_data,
+        _loso_logistic_model_kwargs,
+        _training_sample_weight,
+    )
+
+    subject_dirs = tuple(discover_subject_dirs(config.data))
+    if len(subject_dirs) < 2:
+        raise ValueError("Calibrated edge QA requires at least two subject directories")
+
+    benchmark_config = _benchmark_config(config)
+    subjects = tuple(
+        _load_subject_calibration_data(subject_dir, config=benchmark_config)
+        for subject_dir in subject_dirs
+    )
+    feature_names = tuple(DEFAULT_ASSOCIATION_FEATURES)
+    logistic_model_kwargs = _loso_logistic_model_kwargs(None)
+    rows: list[dict[str, Any]] = []
+
+    for held_out_index, held_out in enumerate(subjects):
+        if config.progress:
+            print(
+                f"registration-qa calibrated LOSO: {held_out.subject_name}",
+                file=sys.stderr,
+                flush=True,
+            )
+        training_subjects = tuple(
+            subject for index, subject in enumerate(subjects) if index != held_out_index
+        )
+        training_features, training_labels = _collect_training_examples(
+            training_subjects,
+            config=benchmark_config,
+            feature_names=feature_names,
+            progress=None,
+            held_out_subject=held_out.subject_name,
+        )
+        weights = _training_sample_weight(
+            training_labels,
+            sample_weight=None,
+            strategy="none",
+        )
+        calibrated_model = fit_logistic_association_model(
+            training_features,
+            training_labels,
+            feature_names=feature_names,
+            sample_weight=weights,
+            model_kwargs=logistic_model_kwargs,
+        )
+        reference_matrix = _reference_matrix(
+            held_out.reference,
+            curated_only=config.curated_only,
+        )
+        subject_rows = _audit_subject(
+            held_out.subject_name,
+            held_out.sessions,
+            reference_matrix,
+            config,
+            calibrated_model=calibrated_model,
+        )
+        for row in subject_rows:
+            row["calibration_training_subjects"] = ",".join(
+                subject.subject_name for subject in training_subjects
+            )
+            row["calibration_training_examples"] = int(training_labels.shape[0])
+            row["calibration_positive_examples"] = int(np.sum(training_labels))
+            row["calibration_negative_examples"] = int(
+                training_labels.shape[0] - np.sum(training_labels)
+            )
+            row["calibration_sample_weight_strategy"] = "none"
+            row["calibration_class_weight"] = "None"
+        rows.extend(subject_rows)
+    return rows
+
+
 def summarize_registration_qa_links(
     rows: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Aggregate link-level QA rows by subject and session edge."""
 
-    grouped: dict[tuple[str, str, str, int], list[Mapping[str, Any]]] = defaultdict(
-        list
-    )
+    grouped: dict[
+        tuple[str, str, str, str, int], list[Mapping[str, Any]]
+    ] = defaultdict(list)
     for row in rows:
         key = (
+            str(row.get("cost", "")),
             str(row["subject"]),
             str(row["source_session_name"]),
             str(row["target_session_name"]),
@@ -129,17 +221,23 @@ def summarize_registration_qa_links(
         grouped[key].append(row)
 
     summary: list[dict[str, Any]] = []
-    for (subject, source_name, target_name, session_gap), group in sorted(
+    for (cost, subject, source_name, target_name, session_gap), group in sorted(
         grouped.items()
     ):
         summary.append(
             {
+                "cost": cost,
                 "subject": subject,
                 "source_session_name": source_name,
                 "target_session_name": target_name,
                 "session_gap": session_gap,
                 "n_gt_links": len(group),
                 "registration_backend": _mode(group, "registration_backend"),
+                "registered_plane_source": _mode(group, "registered_plane_source"),
+                "registration_backend_reason": _mode(
+                    group,
+                    "registration_backend_reason",
+                ),
                 "transform_type": _mode(group, "transform_type"),
                 "median_registered_iou": _stat(group, "registered_iou"),
                 "p10_registered_iou": _stat(group, "registered_iou", 10),
@@ -160,11 +258,29 @@ def summarize_registration_qa_links(
                     max(float(row["empty_registered_fraction"]) for row in group)
                 ),
                 "gt_top1_rate": _mean_bool(group, "gt_is_top1"),
+                "gt_recall_at_1": _mean_bool(group, "gt_is_top1"),
+                "gt_recall_at_5": _mean_bool(group, "gt_is_top5"),
+                "gt_recall_at_10": _mean_bool(group, "gt_is_top10"),
                 "gt_admissible_rate": _mean_bool(group, "gt_candidate_admissible"),
                 "empty_gt_mask_rate": _mean_bool(group, "target_empty_registered_mask"),
                 "gated_gt_rate": _mean_bool(group, "target_gated"),
                 "median_gt_rank": _stat(group, "gt_rank"),
                 "p90_gt_rank": _stat(group, "gt_rank", 90),
+                "median_gt_probability": _stat(group, "gt_probability"),
+                "p10_gt_probability": _stat(group, "gt_probability", 10),
+                "p90_gt_probability": _stat(group, "gt_probability", 90),
+                "median_gt_cost_percentile": _stat(group, "gt_cost_percentile"),
+                "p90_gt_cost_percentile": _stat(group, "gt_cost_percentile", 90),
+                "median_candidate_count": _stat(group, "candidate_count"),
+                "median_finite_candidate_count": _stat(group, "finite_candidate_count"),
+                "median_finite_false_candidate_count": _stat(
+                    group,
+                    "finite_false_candidate_count",
+                ),
+                "median_false_cost_min": _stat(group, "false_cost_min"),
+                "median_false_cost_p10": _stat(group, "false_cost_p10"),
+                "median_false_cost_median": _stat(group, "false_cost_median"),
+                "median_false_cost_p90": _stat(group, "false_cost_p90"),
                 "median_cost_margin": _stat(group, "cost_margin"),
             }
         )
@@ -175,6 +291,7 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
     """Format summary rows as a compact Markdown table."""
 
     columns = [
+        "cost",
         "subject",
         "source_session_name",
         "target_session_name",
@@ -182,10 +299,15 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
         "registration_backend",
         "median_registered_iou",
         "median_registered_centroid_distance",
-        "gt_top1_rate",
+        "gt_recall_at_1",
+        "gt_recall_at_5",
+        "gt_recall_at_10",
         "gt_admissible_rate",
         "empty_registered_rois",
         "median_gt_rank",
+        "median_gt_probability",
+        "median_gt_cost_percentile",
+        "median_false_cost_median",
         "median_cost_margin",
     ]
     body = [
@@ -197,6 +319,136 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
             "| " + " | ".join(_format_value(row.get(col, "")) for col in columns) + " |"
         )
     return "\n".join(body)
+
+
+def summarize_registration_backend_usage(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Summarize which registration backend was actually used per audited edge."""
+
+    edge_groups: dict[tuple[str, str, int, int], list[Mapping[str, Any]]] = defaultdict(
+        list
+    )
+    for row in rows:
+        edge_key = (
+            str(row.get("cost", "")),
+            str(row["subject"]),
+            int(row["source_session_index"]),
+            int(row["target_session_index"]),
+        )
+        edge_groups[edge_key].append(row)
+
+    backend_groups: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = (
+        defaultdict(list)
+    )
+    for edge_rows in edge_groups.values():
+        representative = edge_rows[0]
+        group_key = (
+            str(representative.get("cost", "")),
+            str(representative["registration_backend"]),
+            str(representative["transform_type"]),
+            str(representative.get("registered_plane_source", "")),
+            str(representative.get("registration_backend_reason", "")),
+        )
+        backend_groups[group_key].append(
+            {
+                **dict(representative),
+                "gt_link_rows": len(edge_rows),
+            }
+        )
+
+    summary: list[dict[str, Any]] = []
+    for (
+        cost,
+        registration_backend,
+        transform_type,
+        registered_plane_source,
+        registration_backend_reason,
+    ), backend_edge_rows in sorted(backend_groups.items()):
+        subjects = sorted({str(row["subject"]) for row in backend_edge_rows})
+        summary.append(
+            {
+                "cost": cost,
+                "registration_backend": registration_backend,
+                "transform_type": transform_type,
+                "registered_plane_source": registered_plane_source,
+                "registration_backend_reason": registration_backend_reason,
+                "edge_count": len(backend_edge_rows),
+                "gt_link_rows": int(
+                    sum(int(row["gt_link_rows"]) for row in backend_edge_rows)
+                ),
+                "subject_count": len(subjects),
+                "subjects": ",".join(subjects),
+                "median_fov_translation_shift_y": _stat(
+                    backend_edge_rows,
+                    "fov_translation_shift_y",
+                ),
+                "median_fov_translation_shift_x": _stat(
+                    backend_edge_rows,
+                    "fov_translation_shift_x",
+                ),
+                "median_fov_translation_peak_correlation": _stat(
+                    backend_edge_rows,
+                    "fov_translation_peak_correlation",
+                ),
+            }
+        )
+    return summary
+
+
+def format_registration_backend_audit_table(
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    """Format registration-backend usage rows as a compact Markdown table."""
+
+    columns = [
+        "cost",
+        "registration_backend",
+        "transform_type",
+        "registered_plane_source",
+        "edge_count",
+        "gt_link_rows",
+        "subject_count",
+        "subjects",
+        "median_fov_translation_shift_y",
+        "median_fov_translation_shift_x",
+        "median_fov_translation_peak_correlation",
+        "registration_backend_reason",
+    ]
+    body = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join(["---"] * len(columns)) + " |",
+    ]
+    for row in rows:
+        body.append(
+            "| " + " | ".join(_format_value(row.get(col, "")) for col in columns) + " |"
+        )
+    return "\n".join(body)
+
+
+def write_registration_backend_audit_results(
+    rows: Sequence[Mapping[str, Any]],
+    output_path: Path,
+    output_format: OutputFormat,
+) -> None:
+    """Write registration-backend audit rows as JSON, CSV, or Markdown."""
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_format == "json":
+        output_path.write_text(
+            json.dumps(list(rows), indent=2) + "\n", encoding="utf-8"
+        )
+        return
+    if output_format == "csv":
+        with output_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=_csv_fieldnames(rows))
+            writer.writeheader()
+            writer.writerows(rows)
+        return
+    output_path.write_text(
+        format_registration_backend_audit_table(rows) + "\n",
+        encoding="utf-8",
+    )
 
 
 def write_registration_qa_results(
@@ -243,10 +495,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-gap", type=int, default=2)
     parser.add_argument(
-        "--transform-type", default="affine", choices=("affine", "rigid", "none")
+        "--transform-type",
+        default="affine",
+        choices=("affine", "rigid", "fov-translation", "none"),
     )
     parser.add_argument(
-        "--cost", default="registered-iou", choices=("registered-iou", "roi-aware")
+        "--cost",
+        default="registered-iou",
+        choices=("registered-iou", "roi-aware", "calibrated"),
     )
     parser.add_argument("--cost-threshold", type=float, default=6.0)
     parser.add_argument("--no-cost-threshold", action="store_true")
@@ -266,7 +522,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--velocity-variance", type=float, default=25.0)
     parser.add_argument("--regularization", type=float, default=1.0e-6)
     parser.add_argument("--pairwise-cost-kwargs-json", default=None)
-    parser.add_argument("--level", default="summary", choices=("summary", "links"))
+    parser.add_argument(
+        "--level", default="summary", choices=("summary", "links", "backend-audit")
+    )
     parser.add_argument(
         "--progress", action=argparse.BooleanOptionalAction, default=True
     )
@@ -282,9 +540,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.level == "summary":
         rows = summarize_registration_qa_links(rows)
+    elif args.level == "backend-audit":
+        rows = summarize_registration_backend_usage(rows)
 
     if args.output is not None:
-        write_registration_qa_results(rows, args.output, args.format)
+        if args.level == "backend-audit":
+            write_registration_backend_audit_results(rows, args.output, args.format)
+        else:
+            write_registration_qa_results(rows, args.output, args.format)
     elif args.format == "json":
         print(json.dumps(list(rows), indent=2))
     elif args.format == "csv":
@@ -292,7 +555,10 @@ def main(argv: list[str] | None = None) -> int:
         writer.writeheader()
         writer.writerows(rows)
     else:
-        print(format_registration_qa_table(rows))
+        if args.level == "backend-audit":
+            print(format_registration_backend_audit_table(rows))
+        else:
+            print(format_registration_qa_table(rows))
     return 0
 
 
@@ -301,7 +567,11 @@ def _audit_subject(
     sessions: Sequence[Track2pSession],
     reference_matrix: np.ndarray,
     config: RegistrationQAConfig,
+    calibrated_model: CalibratedAssociationModel | None = None,
 ) -> list[dict[str, Any]]:
+    if config.cost == "calibrated" and calibrated_model is None:
+        raise ValueError("calibrated_model is required when cost='calibrated'")
+
     rows: list[dict[str, Any]] = []
     for source_index, target_index in session_edge_pairs(
         len(sessions), max_gap=config.max_gap
@@ -324,6 +594,10 @@ def _audit_subject(
             target_session.plane_data,
             transform_type=config.transform_type,
         )
+        registration_metadata = _registration_metadata(
+            config.transform_type,
+            registered_plane,
+        )
         registered_plane, empty_registered_rois = replace_empty_registered_masks(
             registered_plane
         )
@@ -338,6 +612,24 @@ def _audit_subject(
             registered_plane,
             config,
         )
+        probability_matrix = None
+        if config.cost == "calibrated":
+            assert calibrated_model is not None
+            add_activity_similarity_components(
+                registered_bundle.pairwise_components,
+                cost_reference_session.plane_data,
+                registered_plane,
+            )
+            cost_matrix = calibrated_model.pairwise_cost_matrix_from_bundle(
+                registered_bundle,
+                session_gap=target_index - source_index,
+            )
+            probability_matrix = calibrated_model.pairwise_probability_matrix_from_bundle(
+                registered_bundle,
+                session_gap=target_index - source_index,
+            )
+        else:
+            cost_matrix = np.asarray(registered_bundle.pairwise_cost_matrix, dtype=float)
         rows.extend(
             _audit_reference_links(
                 subject,
@@ -349,9 +641,14 @@ def _audit_subject(
                 cost_source_lookup,
                 raw_components,
                 registered_bundle.pairwise_components,
-                np.asarray(registered_bundle.pairwise_cost_matrix, dtype=float),
+                np.asarray(cost_matrix, dtype=float),
+                (
+                    None
+                    if probability_matrix is None
+                    else np.asarray(probability_matrix, dtype=float)
+                ),
                 empty_registered_rois,
-                _registration_backend(config.transform_type, registered_plane.source),
+                registration_metadata,
                 config,
             )
         )
@@ -369,8 +666,9 @@ def _audit_reference_links(
     raw_components: Mapping[str, np.ndarray],
     registered_components: Mapping[str, np.ndarray],
     cost_matrix: np.ndarray,
+    probability_matrix: np.ndarray | None,
     empty_registered_rois: np.ndarray,
-    registration_backend: str,
+    registration_metadata: Mapping[str, Any],
     config: RegistrationQAConfig,
 ) -> list[dict[str, Any]]:
     source_lookup = _roi_lookup(source_session)
@@ -392,12 +690,26 @@ def _audit_reference_links(
         target_local = target_lookup[target_roi_int]
         cost_row = cost_matrix[source_local]
         gt_cost = float(cost_row[target_local])
+        probability_row = (
+            None if probability_matrix is None else probability_matrix[source_local]
+        )
+        gt_probability = (
+            np.nan if probability_row is None else float(probability_row[target_local])
+        )
+        finite_costs = cost_row[np.isfinite(cost_row)]
         gt_rank = int(1 + np.count_nonzero(cost_row < gt_cost))
         best_target_local = int(np.nanargmin(cost_row))
-        false_costs = np.delete(cost_row, target_local)
+        false_costs: np.ndarray = np.delete(cost_row, target_local)
         finite_false_costs = false_costs[np.isfinite(false_costs)]
-        best_false_cost = (
-            float(np.min(finite_false_costs)) if finite_false_costs.size else np.nan
+        false_cost_min = _array_stat(finite_false_costs, "min")
+        gt_cost_percentile = (
+            float(
+                100.0
+                * np.count_nonzero(finite_costs < gt_cost)
+                / max(int(finite_costs.size) - 1, 1)
+            )
+            if np.isfinite(gt_cost) and finite_costs.size
+            else np.nan
         )
         target_empty = bool(empty_registered_rois[target_local])
         target_gated = bool(
@@ -412,6 +724,7 @@ def _audit_reference_links(
         )
         rows.append(
             {
+                "cost": config.cost,
                 "subject": subject,
                 "source_session_index": source_index,
                 "target_session_index": target_index,
@@ -419,7 +732,22 @@ def _audit_reference_links(
                 "target_session_name": target_session.session_name,
                 "session_gap": target_index - source_index,
                 "track_index": track_index,
-                "registration_backend": registration_backend,
+                "registration_backend": registration_metadata["registration_backend"],
+                "registered_plane_source": registration_metadata[
+                    "registered_plane_source"
+                ],
+                "registration_backend_reason": registration_metadata[
+                    "registration_backend_reason"
+                ],
+                "fov_translation_shift_y": registration_metadata[
+                    "fov_translation_shift_y"
+                ],
+                "fov_translation_shift_x": registration_metadata[
+                    "fov_translation_shift_x"
+                ],
+                "fov_translation_peak_correlation": registration_metadata[
+                    "fov_translation_peak_correlation"
+                ],
                 "transform_type": config.transform_type,
                 "source_roi": source_roi_int,
                 "target_roi": target_roi_int,
@@ -451,14 +779,26 @@ def _audit_reference_links(
                     target_local,
                 ),
                 "gt_cost": gt_cost,
+                "gt_probability": gt_probability,
                 "gt_rank": gt_rank,
                 "gt_is_top1": gt_rank == 1,
+                "gt_is_top5": gt_rank <= 5,
+                "gt_is_top10": gt_rank <= 10,
+                "gt_cost_percentile": gt_cost_percentile,
+                "candidate_count": int(cost_row.size),
+                "finite_candidate_count": int(finite_costs.size),
+                "false_candidate_count": int(false_costs.size),
+                "finite_false_candidate_count": int(finite_false_costs.size),
                 "best_target_roi": int(target_roi_indices[best_target_local]),
                 "best_cost": float(cost_row[best_target_local]),
-                "best_false_cost": best_false_cost,
+                "best_false_cost": false_cost_min,
+                "false_cost_min": false_cost_min,
+                "false_cost_p10": _array_stat(finite_false_costs, 10),
+                "false_cost_median": _array_stat(finite_false_costs, 50),
+                "false_cost_p90": _array_stat(finite_false_costs, 90),
                 "cost_margin": (
-                    best_false_cost - gt_cost
-                    if np.isfinite(best_false_cost)
+                    false_cost_min - gt_cost
+                    if np.isfinite(false_cost_min)
                     else np.nan
                 ),
                 "target_empty_registered_mask": target_empty,
@@ -622,18 +962,26 @@ def _cost_kwargs(config: RegistrationQAConfig) -> dict[str, Any]:
 def _benchmark_config(config: RegistrationQAConfig) -> Track2pBenchmarkConfig:
     return Track2pBenchmarkConfig(
         data=config.data,
-        method="track2p-baseline",
+        method="global-assignment",
         plane_name=config.plane_name,
         input_format=config.input_format,
         reference=config.reference,
         reference_kind=config.reference_kind,
         allow_track2p_as_reference_for_smoke_test=config.allow_track2p_as_reference_for_smoke_test,
         curated_only=config.curated_only,
+        cost=config.cost,
+        max_gap=config.max_gap,
+        transform_type=config.transform_type,
         include_behavior=config.include_behavior,
         include_non_cells=config.include_non_cells,
         cell_probability_threshold=config.cell_probability_threshold,
         weighted_masks=config.weighted_masks,
         exclude_overlapping_pixels=config.exclude_overlapping_pixels,
+        order=config.order,
+        weighted_centroids=config.weighted_centroids,
+        velocity_variance=config.velocity_variance,
+        regularization=config.regularization,
+        pairwise_cost_kwargs=config.pairwise_cost_kwargs,
         progress=config.progress,
     )
 
@@ -693,6 +1041,32 @@ def _component_value(
     return np.asarray(components[key])[row, column].item()
 
 
+def _registration_metadata(
+    transform_type: str,
+    registered_plane: CalciumPlaneData,
+) -> dict[str, Any]:
+    ops = {} if registered_plane.ops is None else dict(registered_plane.ops)
+    source = str(registered_plane.source)
+    backend = str(
+        ops.get("registration_backend")
+        or _registration_backend(transform_type, source)
+    )
+    return {
+        "registration_backend": backend,
+        "registered_plane_source": source,
+        "registration_backend_reason": str(
+            ops.get("registration_backend_reason")
+            or _registration_backend_reason(transform_type, backend, source)
+        ),
+        "fov_translation_shift_y": _fov_translation_shift_component(ops, 0),
+        "fov_translation_shift_x": _fov_translation_shift_component(ops, 1),
+        "fov_translation_peak_correlation": _float_ops_value(
+            ops,
+            "fov_registration_peak_correlation",
+        ),
+    }
+
+
 def _registration_backend(transform_type: str, source: str) -> str:
     if transform_type == "none":
         return "none"
@@ -703,9 +1077,51 @@ def _registration_backend(transform_type: str, source: str) -> str:
     return "unknown"
 
 
+def _registration_backend_reason(transform_type: str, backend: str, source: str) -> str:
+    if transform_type == "none":
+        return "transform_type=none"
+    if backend == "fov-translation":
+        return "registered plane source contains 'fov_registered'"
+    if backend == "track2p-elastix":
+        return "registered plane source contains 'registered' without 'fov_registered'"
+    return f"could not infer registration backend from registered plane source {source!r}"
+
+
+def _fov_translation_shift_component(
+    ops: Mapping[str, Any],
+    index: int,
+) -> float:
+    shift = ops.get("fov_registration_measurement_to_reference_shift_yx")
+    if shift is None:
+        return np.nan
+    shift_array = np.asarray(shift, dtype=float).reshape(-1)
+    if shift_array.size <= index:
+        return np.nan
+    return float(shift_array[index])
+
+
+def _float_ops_value(ops: Mapping[str, Any], key: str) -> float:
+    if key not in ops:
+        return np.nan
+    try:
+        return float(ops[key])
+    except (TypeError, ValueError):
+        return np.nan
+
+
 def _finite_values(rows: Sequence[Mapping[str, Any]], key: str) -> np.ndarray:
     values = np.asarray([row.get(key, np.nan) for row in rows], dtype=float)
     return values[np.isfinite(values)]
+
+
+def _array_stat(values: np.ndarray, statistic: float | Literal["min"]) -> float:
+    finite_values = np.asarray(values, dtype=float)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if not finite_values.size:
+        return np.nan
+    if statistic == "min":
+        return float(np.min(finite_values))
+    return float(np.percentile(finite_values, statistic))
 
 
 def _stat(
