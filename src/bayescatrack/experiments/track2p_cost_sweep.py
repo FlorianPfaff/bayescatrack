@@ -6,7 +6,7 @@ import argparse
 import csv
 import json
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,6 +62,15 @@ class CostSweepRun:
 def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResult]:
     """Run global-assignment benchmark rows over cost scales and thresholds."""
 
+    return list(iter_track2p_cost_sweep(config))
+
+
+# pylint: disable=too-many-branches
+def iter_track2p_cost_sweep(
+    config: CostSweepConfig,
+) -> Iterator[SubjectBenchmarkResult]:
+    """Yield global-assignment benchmark rows over cost scales and thresholds."""
+
     benchmark = config.benchmark
     if benchmark.method != "global-assignment":
         raise ValueError("Track2p cost sweeps require method='global-assignment'")
@@ -85,7 +94,6 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
             f"No Track2p-style subject directories found under {benchmark.data}"
         )
 
-    results: list[SubjectBenchmarkResult] = []
     progress = ProgressReporter(
         len(subject_dirs) * len(runs), enabled=benchmark.progress, label="cost-sweep"
     )
@@ -143,17 +151,14 @@ def run_track2p_cost_sweep(config: CostSweepConfig) -> list[SubjectBenchmarkResu
                 "gap_penalty": float(run.gap_penalty),
                 **_pairwise_cost_statistics(scaled_costs, run.threshold),
             }
-            results.append(
-                SubjectBenchmarkResult(
-                    subject=subject_dir.name,
-                    variant=_variant_name(benchmark.cost),
-                    method=benchmark.method,
-                    scores=scores,
-                    n_sessions=reference.n_sessions,
-                    reference_source=reference.source,
-                )
+            yield SubjectBenchmarkResult(
+                subject=subject_dir.name,
+                variant=_variant_name(benchmark.cost),
+                method=benchmark.method,
+                scores=scores,
+                n_sessions=reference.n_sessions,
+                reference_source=reference.source,
             )
-    return results
 
 
 def _sweep_runs(
@@ -290,7 +295,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-gap", type=int, default=2)
     parser.add_argument(
-        "--transform-type", default="affine", choices=("affine", "rigid", "none")
+        "--transform-type",
+        default="affine",
+        choices=("affine", "rigid", "fov-translation", "none"),
     )
     parser.add_argument("--start-cost", type=float, default=5.0)
     parser.add_argument("--end-cost", type=float, default=5.0)
@@ -351,6 +358,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
+    parser.add_argument(
+        "--write-incrementally",
+        action="store_true",
+        help=(
+            "Write CSV rows to --output as each solver setting completes. "
+            "Useful for long diagnostic sweeps where partial results are valuable."
+        ),
+    )
     return parser
 
 
@@ -358,6 +373,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
     config = _config_from_args(args)
+    if args.write_incrementally:
+        if args.output is None:
+            parser.error("--write-incrementally requires --output")
+        if args.format != "csv":
+            parser.error("--write-incrementally currently supports --format csv only")
+        write_sweep_results_incrementally(
+            iter_track2p_cost_sweep(config), args.output
+        )
+        return 0
+
     rows = [result.to_dict() for result in run_track2p_cost_sweep(config)]
     if args.output is not None:
         write_sweep_results(rows, args.output, args.format)
@@ -537,6 +562,34 @@ def write_sweep_results(
             writer.writerows(rows)
         return
     output_path.write_text(format_sweep_table(rows) + "\n", encoding="utf-8")
+
+
+def write_sweep_results_incrementally(
+    results: Iterable[SubjectBenchmarkResult], output_path: Path
+) -> int:
+    """Write CSV rows as soon as each sweep setting completes."""
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rows_written = 0
+    with output_path.open("w", newline="", encoding="utf-8") as handle:
+        writer: csv.DictWriter[str] | None = None
+        fieldnames: list[str] = []
+        for result in results:
+            row = result.to_dict()
+            if writer is None:
+                fieldnames = _sweep_fieldnames([row])
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+            unexpected = sorted(set(row) - set(fieldnames))
+            if unexpected:
+                raise ValueError(
+                    "Incremental CSV rows introduced unexpected fields: "
+                    + ", ".join(unexpected)
+                )
+            writer.writerow(row)
+            handle.flush()
+            rows_written += 1
+    return rows_written
 
 
 def _write_sweep_stdout(

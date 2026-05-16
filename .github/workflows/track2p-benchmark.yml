@@ -26,4 +26,5 @@ jobs:
         env:
           TRACK2P_DATA_PATH: ${{ vars.TRACK2P_DATA_PATH }}
           TRACK2P_REFERENCE_PATH: ${{ vars.TRACK2P_REFERENCE_PATH }}
+          TRACK2P_TRANSFORM_TYPE: ${{ vars.TRACK2P_TRANSFORM_TYPE || 'fov-translation' }}
         run: poetry run python .github/scripts/run_track2p_benchmark.py

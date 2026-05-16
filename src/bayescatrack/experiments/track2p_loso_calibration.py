@@ -177,12 +177,12 @@ def run_track2p_loso_calibration(
         predicted_matrix = tracks_to_suite2p_index_matrix(
             assignment.result.tracks, held_out.sessions
         )
-        scores = _score_prediction_against_reference(
+        base_scores = _score_prediction_against_reference(
             predicted_matrix, held_out.reference, config=config
         )
         positives = int(np.sum(training_labels))
-        scores = {
-            **scores,
+        scores: dict[str, float | int | str] = {
+            **base_scores,
             "training_examples": int(training_labels.shape[0]),
             "positive_examples": positives,
             "negative_examples": int(training_labels.shape[0] - positives),

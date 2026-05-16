@@ -29,6 +29,9 @@ except ImportError:  # pragma: no cover - defensive fallback only
     linear_sum_assignment = None
 
 
+DEFAULT_ASSIGNMENT_MAX_COST = 6.0
+
+
 @dataclass(frozen=True)
 class SessionMatchResult:
     """Linear-assignment solution for one consecutive session pair."""
@@ -98,7 +101,7 @@ class SessionMatchResult:
 def solve_bundle_linear_assignment(
     bundle: Any,
     *,
-    max_cost: float | None = None,
+    max_cost: float | None = DEFAULT_ASSIGNMENT_MAX_COST,
 ) -> SessionMatchResult:
     """Solve a :class:`SessionAssociationBundle` via linear assignment.
 
@@ -108,8 +111,9 @@ def solve_bundle_linear_assignment(
         Any object exposing the attributes used by
         :class:`track2p_pyrecest_bridge.SessionAssociationBundle`.
     max_cost
-        Optional post-assignment gate. Matched pairs with assignment cost larger
-        than this threshold are discarded.
+        Assignment gate. Candidate pairs with assignment cost larger than this
+        threshold are excluded from the linear-assignment objective and discarded
+        from the returned matches. Pass ``None`` to keep every finite assignment.
     """
 
     if linear_sum_assignment is None:
@@ -120,26 +124,32 @@ def solve_bundle_linear_assignment(
     cost_matrix = np.asarray(bundle.pairwise_cost_matrix, dtype=float)
     if cost_matrix.ndim != 2:
         raise ValueError("bundle.pairwise_cost_matrix must be two-dimensional")
-    if max_cost is not None and max_cost < 0.0:
-        raise ValueError("max_cost must be non-negative")
+    if max_cost is not None:
+        max_cost = float(max_cost)
+        if not np.isfinite(max_cost) or max_cost < 0.0:
+            raise ValueError("max_cost must be a finite non-negative value")
 
     if cost_matrix.shape[0] == 0 or cost_matrix.shape[1] == 0:
-        empty = np.zeros((0,), dtype=int)
-        empty_costs = np.zeros((0,), dtype=float)
-        return SessionMatchResult(
-            reference_session_name=str(bundle.reference_session_name),
-            measurement_session_name=str(bundle.measurement_session_name),
-            reference_positions=empty,
-            measurement_positions=empty,
-            reference_roi_indices=empty,
-            measurement_roi_indices=empty,
-            costs=empty_costs,
+        return _empty_match_result(bundle)
+
+    assignment_cost_matrix = cost_matrix
+    valid_assignment_mask: np.ndarray | None = None
+    if max_cost is not None:
+        valid_assignment_mask = np.isfinite(cost_matrix) & (cost_matrix <= max_cost)
+        if not np.any(valid_assignment_mask):
+            return _empty_match_result(bundle)
+        assignment_cost_matrix = _gate_cost_matrix_for_linear_assignment(
+            cost_matrix,
+            valid_assignment_mask,
+            max_cost=max_cost,
         )
 
-    reference_positions, measurement_positions = linear_sum_assignment(cost_matrix)
+    reference_positions, measurement_positions = linear_sum_assignment(
+        assignment_cost_matrix
+    )
     assignment_costs = cost_matrix[reference_positions, measurement_positions]
-    if max_cost is not None:
-        keep = assignment_costs <= max_cost
+    if valid_assignment_mask is not None:
+        keep = valid_assignment_mask[reference_positions, measurement_positions]
         reference_positions = reference_positions[keep]
         measurement_positions = measurement_positions[keep]
         assignment_costs = assignment_costs[keep]
@@ -168,7 +178,7 @@ def solve_bundle_linear_assignment(
 def solve_consecutive_bundle_linear_assignments(
     bundles: Sequence[Any],
     *,
-    max_cost: float | None = None,
+    max_cost: float | None = DEFAULT_ASSIGNMENT_MAX_COST,
 ) -> list[SessionMatchResult]:
     """Solve a sequence of consecutive bundles into ROI-index matches."""
 
@@ -267,7 +277,7 @@ def build_track_rows_from_matches(
 def build_track_rows_from_bundles(
     bundles: Sequence[Any],
     *,
-    max_cost: float | None = None,
+    max_cost: float | None = DEFAULT_ASSIGNMENT_MAX_COST,
     start_roi_indices: Sequence[int] | None = None,
     start_session_index: int = 0,
     fill_value: int = -1,
@@ -277,6 +287,8 @@ def build_track_rows_from_bundles(
     bundles = list(bundles)
     if not bundles:
         raise ValueError("bundles must not be empty")
+    if max_cost is None:
+        max_cost = DEFAULT_ASSIGNMENT_MAX_COST
 
     match_results = solve_consecutive_bundle_linear_assignments(
         bundles,
@@ -416,3 +428,53 @@ def _normalize_match_mapping(
             for reference_roi, measurement_roi in match_array.tolist()
         }
     raise TypeError("unsupported match representation")
+
+
+def _empty_match_result(bundle: Any) -> SessionMatchResult:
+    empty = np.zeros((0,), dtype=int)
+    empty_costs = np.zeros((0,), dtype=float)
+    return SessionMatchResult(
+        reference_session_name=str(bundle.reference_session_name),
+        measurement_session_name=str(bundle.measurement_session_name),
+        reference_positions=empty,
+        measurement_positions=empty,
+        reference_roi_indices=empty,
+        measurement_roi_indices=empty,
+        costs=empty_costs,
+    )
+
+
+def _gate_cost_matrix_for_linear_assignment(
+    cost_matrix: np.ndarray,
+    valid_assignment_mask: np.ndarray,
+    *,
+    max_cost: float,
+) -> np.ndarray:
+    """Return a cost matrix where invalid candidate links cannot win cheaply.
+
+    Simply solving the original matrix and discarding over-threshold assignments
+    afterward can lower match cardinality. For example, an assignment containing
+    one over-threshold link plus one very cheap link may have a lower total cost
+    than two valid but moderate-cost links. Replacing invalid entries with a
+    dominating penalty makes the Hungarian objective maximize the number of valid
+    links first, then minimize their total cost.
+    """
+
+    valid_costs = np.asarray(cost_matrix[valid_assignment_mask], dtype=float)
+    if valid_costs.size == 0:
+        raise ValueError("valid_assignment_mask must contain at least one True entry")
+
+    valid_min = float(np.min(valid_costs))
+    valid_max = float(np.max(valid_costs))
+    cost_span = max(valid_max - valid_min, 1.0)
+    cost_scale = max(
+        abs(valid_min),
+        abs(valid_max),
+        abs(float(max_cost)),
+        cost_span,
+        1.0,
+    )
+    max_assignments = min(cost_matrix.shape)
+    invalid_penalty = (max_assignments + 1) * (cost_scale + cost_span + 1.0)
+
+    return np.where(valid_assignment_mask, cost_matrix, invalid_penalty)

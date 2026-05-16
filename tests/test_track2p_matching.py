@@ -25,6 +25,20 @@ def test_build_track_rows_from_consecutive_matches():
     npt.assert_array_equal(rows, np.array([[0, 1, 5], [2, 3, 6]]))
 
 
+def test_build_track_rows_from_later_seed_session_stitches_both_directions():
+    rows = build_track_rows_from_matches(
+        ("s1", "s2", "s3"),
+        [np.array([[0, 10], [2, 20]]), np.array([[10, 5], [20, 6]])],
+        start_roi_indices=np.array([10, 20, 30]),
+        start_session_index=1,
+    )
+
+    npt.assert_array_equal(
+        rows,
+        np.array([[0, 10, 5], [2, 20, 6], [-1, 30, -1]]),
+    )
+
+
 def test_solve_bundle_linear_assignment_uses_default_cost_gate():
     result = solve_bundle_linear_assignment(
         _Bundle([[0.0, 100.0], [100.0, 100.0]])
