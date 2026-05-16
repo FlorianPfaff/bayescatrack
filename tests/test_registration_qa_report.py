@@ -30,7 +30,7 @@ def test_registration_qa_report_summarizes_manual_gt_links(
     write_raw_npy_session,
 ):
     subject_dir = tmp_path / "jm001"
-    masks = np.zeros((2, 5, 5), dtype=bool)
+    masks: np.ndarray = np.zeros((2, 5, 5), dtype=bool)
     masks[0, 0:2, 0:2] = True
     masks[1, 3:5, 3:5] = True
     write_raw_npy_session(subject_dir, "2024-05-01_a", masks, offset=0.0)
@@ -58,6 +58,7 @@ def test_registration_qa_report_summarizes_manual_gt_links(
     assert first["registered_iou"] == pytest.approx(1.0)
     assert first["raw_iou"] == pytest.approx(1.0)
     assert first["registered_centroid_distance"] == pytest.approx(0.0)
+    assert np.isnan(first["gt_probability"])
     assert first["gt_rank"] == 1
     assert first["gt_is_top1"] is True
     assert first["gt_is_top5"] is True
@@ -99,10 +100,10 @@ def test_registration_qa_report_tolerates_raw_mask_shape_mismatch(
     write_raw_npy_session,
 ):
     subject_dir = tmp_path / "jm001"
-    reference_masks = np.zeros((2, 5, 5), dtype=bool)
+    reference_masks: np.ndarray = np.zeros((2, 5, 5), dtype=bool)
     reference_masks[0, 1:3, 1:3] = True
     reference_masks[1, 3:5, 3:5] = True
-    target_masks = np.zeros((2, 6, 5), dtype=bool)
+    target_masks: np.ndarray = np.zeros((2, 6, 5), dtype=bool)
     target_masks[:, :5, :] = reference_masks
     write_raw_npy_session(subject_dir, "2024-05-01_a", reference_masks, offset=0.0)
     write_raw_npy_session(subject_dir, "2024-05-02_a", target_masks, offset=0.0)
@@ -129,3 +130,51 @@ def test_registration_qa_report_tolerates_raw_mask_shape_mismatch(
     assert np.isnan(rows[0]["raw_iou"])
     assert rows[0]["registered_iou"] == pytest.approx(1.0)
     assert rows[0]["gt_candidate_admissible"] is True
+
+
+def test_registration_qa_report_emits_calibrated_loso_probabilities(
+    tmp_path,
+    write_raw_npy_session,
+):
+    masks: np.ndarray = np.zeros((2, 5, 5), dtype=bool)
+    masks[0, 0:2, 0:2] = True
+    masks[1, 3:5, 3:5] = True
+    session_names = ("2024-05-01_a", "2024-05-02_a")
+    for index, subject_name in enumerate(("jm001", "jm002")):
+        subject_dir = tmp_path / subject_name
+        write_raw_npy_session(
+            subject_dir,
+            session_names[0],
+            masks,
+            offset=float(index),
+        )
+        write_raw_npy_session(
+            subject_dir,
+            session_names[1],
+            masks.copy(),
+            offset=float(index + 1),
+        )
+        _write_ground_truth_csv(subject_dir, session_names, ((0, 0), (1, 1)))
+
+    rows = run_registration_qa_report(
+        RegistrationQAConfig(
+            data=tmp_path,
+            reference_kind="manual-gt",
+            input_format="npy",
+            transform_type="none",
+            max_gap=1,
+            cost="calibrated",
+            include_behavior=False,
+        )
+    )
+
+    assert len(rows) == 4
+    probabilities = np.array([row["gt_probability"] for row in rows], dtype=float)
+    assert np.all(np.isfinite(probabilities))
+    assert np.all((probabilities >= 0.0) & (probabilities <= 1.0))
+    assert {row["calibration_sample_weight_strategy"] for row in rows} == {"none"}
+    assert {row["calibration_class_weight"] for row in rows} == {"None"}
+
+    summary = summarize_registration_qa_links(rows)
+    assert len(summary) == 2
+    assert all(np.isfinite(row["median_gt_probability"]) for row in summary)

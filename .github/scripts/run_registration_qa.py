@@ -30,7 +30,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="suite2p",
         choices=("auto", "suite2p", "npy"),
     )
-    parser.add_argument("--cost", required=True, choices=("registered-iou", "roi-aware"))
+    parser.add_argument(
+        "--cost",
+        required=True,
+        choices=("registered-iou", "roi-aware", "calibrated"),
+    )
     parser.add_argument("--max-gap", type=int, default=2)
     parser.add_argument("--cost-threshold", type=float, default=6.0)
     parser.add_argument("--no-cost-threshold", action="store_true")

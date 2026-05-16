@@ -153,6 +153,25 @@ jobs:
             --summary-csv-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.csv" \
             --summary-table-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.md"
 
+      - name: Run calibrated LOSO registration QA
+        env:
+          MAX_GAP: ${{ inputs.max_gap }}
+          COST_THRESHOLD: ${{ inputs.cost_threshold }}
+        run: |
+          python .github/scripts/run_registration_qa.py \
+            --data "${{ steps.prep.outputs.data_root }}" \
+            --reference "${{ steps.prep.outputs.reference_root }}" \
+            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
+            --input-format suite2p \
+            --include-non-cells \
+            --no-include-behavior \
+            --cost calibrated \
+            --max-gap "$MAX_GAP" \
+            --cost-threshold "$COST_THRESHOLD" \
+            --links-output "results/registration_qa_calibrated_links_gap${MAX_GAP}.csv" \
+            --summary-csv-output "results/registration_qa_calibrated_summary_gap${MAX_GAP}.csv" \
+            --summary-table-output "results/registration_qa_calibrated_summary_gap${MAX_GAP}.md"
+
       - name: Add registration QA summaries to job summary
         if: always()
         run: |
@@ -162,6 +181,9 @@ jobs:
             echo
             echo "## ROI-aware registration QA"
             cat "results/registration_qa_roi_aware_summary_gap${{ inputs.max_gap }}.md"
+            echo
+            echo "## Calibrated LOSO registration QA"
+            cat "results/registration_qa_calibrated_summary_gap${{ inputs.max_gap }}.md"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload registration QA results

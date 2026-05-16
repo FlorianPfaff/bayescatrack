@@ -14,6 +14,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+from bayescatrack.association.activity_similarity import (
+    add_activity_similarity_components,
+)
+from bayescatrack.association.calibrated_costs import (
+    DEFAULT_ASSOCIATION_FEATURES,
+    CalibratedAssociationModel,
+    fit_logistic_association_model,
+)
 from bayescatrack.association.pyrecest_global_assignment import (
     registered_iou_cost_kwargs,
     roi_aware_cost_kwargs,
@@ -37,7 +45,7 @@ from bayescatrack.experiments.track2p_benchmark import (
 )
 from bayescatrack.track2p_registration import register_plane_pair
 
-RegistrationQACost = Literal["registered-iou", "roi-aware"]
+RegistrationQACost = Literal["registered-iou", "roi-aware", "calibrated"]
 RegistrationQALevel = Literal["summary", "links"]
 OutputFormat = Literal["table", "json", "csv"]
 
@@ -72,6 +80,9 @@ class RegistrationQAConfig:
 
 def run_registration_qa_report(config: RegistrationQAConfig) -> list[dict[str, Any]]:
     """Return one diagnostics row for each manual-GT link and audited edge."""
+
+    if config.cost == "calibrated":
+        return _run_calibrated_loso_registration_qa_report(config)
 
     subject_dirs = discover_subject_dirs(config.data)
     if not subject_dirs:
@@ -108,6 +119,86 @@ def run_registration_qa_report(config: RegistrationQAConfig) -> list[dict[str, A
                 config,
             )
         )
+    return rows
+
+
+def _run_calibrated_loso_registration_qa_report(
+    config: RegistrationQAConfig,
+) -> list[dict[str, Any]]:
+    """Return held-out edge diagnostics for LOSO calibrated costs."""
+
+    from bayescatrack.experiments.track2p_loso_calibration import (
+        _collect_training_examples,
+        _load_subject_calibration_data,
+        _loso_logistic_model_kwargs,
+        _training_sample_weight,
+    )
+
+    subject_dirs = tuple(discover_subject_dirs(config.data))
+    if len(subject_dirs) < 2:
+        raise ValueError("Calibrated edge QA requires at least two subject directories")
+
+    benchmark_config = _benchmark_config(config)
+    subjects = tuple(
+        _load_subject_calibration_data(subject_dir, config=benchmark_config)
+        for subject_dir in subject_dirs
+    )
+    feature_names = tuple(DEFAULT_ASSOCIATION_FEATURES)
+    logistic_model_kwargs = _loso_logistic_model_kwargs(None)
+    rows: list[dict[str, Any]] = []
+
+    for held_out_index, held_out in enumerate(subjects):
+        if config.progress:
+            print(
+                f"registration-qa calibrated LOSO: {held_out.subject_name}",
+                file=sys.stderr,
+                flush=True,
+            )
+        training_subjects = tuple(
+            subject for index, subject in enumerate(subjects) if index != held_out_index
+        )
+        training_features, training_labels = _collect_training_examples(
+            training_subjects,
+            config=benchmark_config,
+            feature_names=feature_names,
+            progress=None,
+            held_out_subject=held_out.subject_name,
+        )
+        weights = _training_sample_weight(
+            training_labels,
+            sample_weight=None,
+            strategy="none",
+        )
+        calibrated_model = fit_logistic_association_model(
+            training_features,
+            training_labels,
+            feature_names=feature_names,
+            sample_weight=weights,
+            model_kwargs=logistic_model_kwargs,
+        )
+        reference_matrix = _reference_matrix(
+            held_out.reference,
+            curated_only=config.curated_only,
+        )
+        subject_rows = _audit_subject(
+            held_out.subject_name,
+            held_out.sessions,
+            reference_matrix,
+            config,
+            calibrated_model=calibrated_model,
+        )
+        for row in subject_rows:
+            row["calibration_training_subjects"] = ",".join(
+                subject.subject_name for subject in training_subjects
+            )
+            row["calibration_training_examples"] = int(training_labels.shape[0])
+            row["calibration_positive_examples"] = int(np.sum(training_labels))
+            row["calibration_negative_examples"] = int(
+                training_labels.shape[0] - np.sum(training_labels)
+            )
+            row["calibration_sample_weight_strategy"] = "none"
+            row["calibration_class_weight"] = "None"
+        rows.extend(subject_rows)
     return rows
 
 
@@ -168,6 +259,9 @@ def summarize_registration_qa_links(
                 "gated_gt_rate": _mean_bool(group, "target_gated"),
                 "median_gt_rank": _stat(group, "gt_rank"),
                 "p90_gt_rank": _stat(group, "gt_rank", 90),
+                "median_gt_probability": _stat(group, "gt_probability"),
+                "p10_gt_probability": _stat(group, "gt_probability", 10),
+                "p90_gt_probability": _stat(group, "gt_probability", 90),
                 "median_gt_cost_percentile": _stat(group, "gt_cost_percentile"),
                 "p90_gt_cost_percentile": _stat(group, "gt_cost_percentile", 90),
                 "median_candidate_count": _stat(group, "candidate_count"),
@@ -203,6 +297,7 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
         "gt_admissible_rate",
         "empty_registered_rois",
         "median_gt_rank",
+        "median_gt_probability",
         "median_gt_cost_percentile",
         "median_false_cost_median",
         "median_cost_margin",
@@ -265,7 +360,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--transform-type", default="affine", choices=("affine", "rigid", "none")
     )
     parser.add_argument(
-        "--cost", default="registered-iou", choices=("registered-iou", "roi-aware")
+        "--cost",
+        default="registered-iou",
+        choices=("registered-iou", "roi-aware", "calibrated"),
     )
     parser.add_argument("--cost-threshold", type=float, default=6.0)
     parser.add_argument("--no-cost-threshold", action="store_true")
@@ -320,7 +417,11 @@ def _audit_subject(
     sessions: Sequence[Track2pSession],
     reference_matrix: np.ndarray,
     config: RegistrationQAConfig,
+    calibrated_model: CalibratedAssociationModel | None = None,
 ) -> list[dict[str, Any]]:
+    if config.cost == "calibrated" and calibrated_model is None:
+        raise ValueError("calibrated_model is required when cost='calibrated'")
+
     rows: list[dict[str, Any]] = []
     for source_index, target_index in session_edge_pairs(
         len(sessions), max_gap=config.max_gap
@@ -357,6 +458,24 @@ def _audit_subject(
             registered_plane,
             config,
         )
+        probability_matrix = None
+        if config.cost == "calibrated":
+            assert calibrated_model is not None
+            add_activity_similarity_components(
+                registered_bundle.pairwise_components,
+                cost_reference_session.plane_data,
+                registered_plane,
+            )
+            cost_matrix = calibrated_model.pairwise_cost_matrix_from_bundle(
+                registered_bundle,
+                session_gap=target_index - source_index,
+            )
+            probability_matrix = calibrated_model.pairwise_probability_matrix_from_bundle(
+                registered_bundle,
+                session_gap=target_index - source_index,
+            )
+        else:
+            cost_matrix = np.asarray(registered_bundle.pairwise_cost_matrix, dtype=float)
         rows.extend(
             _audit_reference_links(
                 subject,
@@ -368,7 +487,12 @@ def _audit_subject(
                 cost_source_lookup,
                 raw_components,
                 registered_bundle.pairwise_components,
-                np.asarray(registered_bundle.pairwise_cost_matrix, dtype=float),
+                np.asarray(cost_matrix, dtype=float),
+                (
+                    None
+                    if probability_matrix is None
+                    else np.asarray(probability_matrix, dtype=float)
+                ),
                 empty_registered_rois,
                 _registration_backend(config.transform_type, registered_plane.source),
                 config,
@@ -388,6 +512,7 @@ def _audit_reference_links(
     raw_components: Mapping[str, np.ndarray],
     registered_components: Mapping[str, np.ndarray],
     cost_matrix: np.ndarray,
+    probability_matrix: np.ndarray | None,
     empty_registered_rois: np.ndarray,
     registration_backend: str,
     config: RegistrationQAConfig,
@@ -411,10 +536,16 @@ def _audit_reference_links(
         target_local = target_lookup[target_roi_int]
         cost_row = cost_matrix[source_local]
         gt_cost = float(cost_row[target_local])
+        probability_row = (
+            None if probability_matrix is None else probability_matrix[source_local]
+        )
+        gt_probability = (
+            np.nan if probability_row is None else float(probability_row[target_local])
+        )
         finite_costs = cost_row[np.isfinite(cost_row)]
         gt_rank = int(1 + np.count_nonzero(cost_row < gt_cost))
         best_target_local = int(np.nanargmin(cost_row))
-        false_costs = np.delete(cost_row, target_local)
+        false_costs: np.ndarray = np.delete(cost_row, target_local)
         finite_false_costs = false_costs[np.isfinite(false_costs)]
         false_cost_min = _array_stat(finite_false_costs, "min")
         gt_cost_percentile = (
@@ -478,6 +609,7 @@ def _audit_reference_links(
                     target_local,
                 ),
                 "gt_cost": gt_cost,
+                "gt_probability": gt_probability,
                 "gt_rank": gt_rank,
                 "gt_is_top1": gt_rank == 1,
                 "gt_is_top5": gt_rank <= 5,
@@ -660,18 +792,26 @@ def _cost_kwargs(config: RegistrationQAConfig) -> dict[str, Any]:
 def _benchmark_config(config: RegistrationQAConfig) -> Track2pBenchmarkConfig:
     return Track2pBenchmarkConfig(
         data=config.data,
-        method="track2p-baseline",
+        method="global-assignment",
         plane_name=config.plane_name,
         input_format=config.input_format,
         reference=config.reference,
         reference_kind=config.reference_kind,
         allow_track2p_as_reference_for_smoke_test=config.allow_track2p_as_reference_for_smoke_test,
         curated_only=config.curated_only,
+        cost=config.cost,
+        max_gap=config.max_gap,
+        transform_type=config.transform_type,
         include_behavior=config.include_behavior,
         include_non_cells=config.include_non_cells,
         cell_probability_threshold=config.cell_probability_threshold,
         weighted_masks=config.weighted_masks,
         exclude_overlapping_pixels=config.exclude_overlapping_pixels,
+        order=config.order,
+        weighted_centroids=config.weighted_centroids,
+        velocity_variance=config.velocity_variance,
+        regularization=config.regularization,
+        pairwise_cost_kwargs=config.pairwise_cost_kwargs,
         progress=config.progress,
     )
 
