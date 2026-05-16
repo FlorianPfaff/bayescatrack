@@ -60,6 +60,14 @@ def test_registration_qa_report_summarizes_manual_gt_links(
     assert first["registered_centroid_distance"] == pytest.approx(0.0)
     assert first["gt_rank"] == 1
     assert first["gt_is_top1"] is True
+    assert first["gt_is_top5"] is True
+    assert first["gt_is_top10"] is True
+    assert first["gt_cost_percentile"] == pytest.approx(0.0)
+    assert first["candidate_count"] == 2
+    assert first["finite_candidate_count"] == 2
+    assert first["finite_false_candidate_count"] == 1
+    assert first["false_cost_min"] > first["gt_cost"]
+    assert first["false_cost_median"] == pytest.approx(first["false_cost_min"])
     assert first["gt_candidate_admissible"] is True
 
     summary = summarize_registration_qa_links(rows)
@@ -68,10 +76,21 @@ def test_registration_qa_report_summarizes_manual_gt_links(
     assert summary[0]["median_registered_iou"] == pytest.approx(1.0)
     assert summary[0]["median_registered_centroid_distance"] == pytest.approx(0.0)
     assert summary[0]["gt_top1_rate"] == pytest.approx(1.0)
+    assert summary[0]["gt_recall_at_1"] == pytest.approx(1.0)
+    assert summary[0]["gt_recall_at_5"] == pytest.approx(1.0)
+    assert summary[0]["gt_recall_at_10"] == pytest.approx(1.0)
+    assert summary[0]["median_gt_cost_percentile"] == pytest.approx(0.0)
+    assert summary[0]["median_finite_candidate_count"] == pytest.approx(2.0)
+    assert summary[0]["median_finite_false_candidate_count"] == pytest.approx(1.0)
+    assert summary[0]["median_false_cost_min"] > 0.0
+    assert summary[0]["median_false_cost_median"] == pytest.approx(
+        summary[0]["median_false_cost_min"]
+    )
     assert summary[0]["gt_admissible_rate"] == pytest.approx(1.0)
 
     table = format_registration_qa_table(summary)
     assert "median_registered_iou" in table
+    assert "gt_recall_at_5" in table
     assert "jm001" in table
 
 

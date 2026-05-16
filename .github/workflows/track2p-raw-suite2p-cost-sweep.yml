@@ -170,6 +170,7 @@ jobs:
             --end-costs "$END_COSTS" \
             --gap-penalties "$GAP_PENALTIES" \
             --format csv \
+            --write-incrementally \
             --output "results/solver_cost_sweep_${COST}_gap${MAX_GAP}.csv"
 
       - name: Summarize best sweep rows

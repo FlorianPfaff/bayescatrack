@@ -160,11 +160,26 @@ def summarize_registration_qa_links(
                     max(float(row["empty_registered_fraction"]) for row in group)
                 ),
                 "gt_top1_rate": _mean_bool(group, "gt_is_top1"),
+                "gt_recall_at_1": _mean_bool(group, "gt_is_top1"),
+                "gt_recall_at_5": _mean_bool(group, "gt_is_top5"),
+                "gt_recall_at_10": _mean_bool(group, "gt_is_top10"),
                 "gt_admissible_rate": _mean_bool(group, "gt_candidate_admissible"),
                 "empty_gt_mask_rate": _mean_bool(group, "target_empty_registered_mask"),
                 "gated_gt_rate": _mean_bool(group, "target_gated"),
                 "median_gt_rank": _stat(group, "gt_rank"),
                 "p90_gt_rank": _stat(group, "gt_rank", 90),
+                "median_gt_cost_percentile": _stat(group, "gt_cost_percentile"),
+                "p90_gt_cost_percentile": _stat(group, "gt_cost_percentile", 90),
+                "median_candidate_count": _stat(group, "candidate_count"),
+                "median_finite_candidate_count": _stat(group, "finite_candidate_count"),
+                "median_finite_false_candidate_count": _stat(
+                    group,
+                    "finite_false_candidate_count",
+                ),
+                "median_false_cost_min": _stat(group, "false_cost_min"),
+                "median_false_cost_p10": _stat(group, "false_cost_p10"),
+                "median_false_cost_median": _stat(group, "false_cost_median"),
+                "median_false_cost_p90": _stat(group, "false_cost_p90"),
                 "median_cost_margin": _stat(group, "cost_margin"),
             }
         )
@@ -182,10 +197,14 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
         "registration_backend",
         "median_registered_iou",
         "median_registered_centroid_distance",
-        "gt_top1_rate",
+        "gt_recall_at_1",
+        "gt_recall_at_5",
+        "gt_recall_at_10",
         "gt_admissible_rate",
         "empty_registered_rois",
         "median_gt_rank",
+        "median_gt_cost_percentile",
+        "median_false_cost_median",
         "median_cost_margin",
     ]
     body = [
@@ -392,12 +411,20 @@ def _audit_reference_links(
         target_local = target_lookup[target_roi_int]
         cost_row = cost_matrix[source_local]
         gt_cost = float(cost_row[target_local])
+        finite_costs = cost_row[np.isfinite(cost_row)]
         gt_rank = int(1 + np.count_nonzero(cost_row < gt_cost))
         best_target_local = int(np.nanargmin(cost_row))
         false_costs = np.delete(cost_row, target_local)
         finite_false_costs = false_costs[np.isfinite(false_costs)]
-        best_false_cost = (
-            float(np.min(finite_false_costs)) if finite_false_costs.size else np.nan
+        false_cost_min = _array_stat(finite_false_costs, "min")
+        gt_cost_percentile = (
+            float(
+                100.0
+                * np.count_nonzero(finite_costs < gt_cost)
+                / max(int(finite_costs.size) - 1, 1)
+            )
+            if np.isfinite(gt_cost) and finite_costs.size
+            else np.nan
         )
         target_empty = bool(empty_registered_rois[target_local])
         target_gated = bool(
@@ -453,12 +480,23 @@ def _audit_reference_links(
                 "gt_cost": gt_cost,
                 "gt_rank": gt_rank,
                 "gt_is_top1": gt_rank == 1,
+                "gt_is_top5": gt_rank <= 5,
+                "gt_is_top10": gt_rank <= 10,
+                "gt_cost_percentile": gt_cost_percentile,
+                "candidate_count": int(cost_row.size),
+                "finite_candidate_count": int(finite_costs.size),
+                "false_candidate_count": int(false_costs.size),
+                "finite_false_candidate_count": int(finite_false_costs.size),
                 "best_target_roi": int(target_roi_indices[best_target_local]),
                 "best_cost": float(cost_row[best_target_local]),
-                "best_false_cost": best_false_cost,
+                "best_false_cost": false_cost_min,
+                "false_cost_min": false_cost_min,
+                "false_cost_p10": _array_stat(finite_false_costs, 10),
+                "false_cost_median": _array_stat(finite_false_costs, 50),
+                "false_cost_p90": _array_stat(finite_false_costs, 90),
                 "cost_margin": (
-                    best_false_cost - gt_cost
-                    if np.isfinite(best_false_cost)
+                    false_cost_min - gt_cost
+                    if np.isfinite(false_cost_min)
                     else np.nan
                 ),
                 "target_empty_registered_mask": target_empty,
@@ -706,6 +744,16 @@ def _registration_backend(transform_type: str, source: str) -> str:
 def _finite_values(rows: Sequence[Mapping[str, Any]], key: str) -> np.ndarray:
     values = np.asarray([row.get(key, np.nan) for row in rows], dtype=float)
     return values[np.isfinite(values)]
+
+
+def _array_stat(values: np.ndarray, statistic: float | Literal["min"]) -> float:
+    finite_values = np.asarray(values, dtype=float)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if not finite_values.size:
+        return np.nan
+    if statistic == "min":
+        return float(np.min(finite_values))
+    return float(np.percentile(finite_values, statistic))
 
 
 def _stat(
