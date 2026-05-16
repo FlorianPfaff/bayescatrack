@@ -98,7 +98,7 @@ def test_registration_qa_report_tolerates_raw_mask_shape_mismatch(
             data=subject_dir,
             reference_kind="manual-gt",
             input_format="npy",
-            transform_type="affine",
+            transform_type="fov-translation",
             max_gap=1,
             cost="registered-iou",
         )
