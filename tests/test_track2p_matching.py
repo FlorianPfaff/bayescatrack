@@ -95,3 +95,5 @@ def test_build_track_rows_from_bundles_can_disable_cost_gate():
 
     assert session_names == ("s1", "s2")
     npt.assert_array_equal(rows, np.array([[10, 100], [20, 200]]))
+    assert match_results[0].n_matches == 2
+    npt.assert_array_equal(match_results[0].costs, np.array([0.0, 100.0]))
