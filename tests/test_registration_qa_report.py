@@ -141,18 +141,19 @@ def test_registration_qa_report_tolerates_raw_mask_shape_mismatch(
             data=subject_dir,
             reference_kind="manual-gt",
             input_format="npy",
-            transform_type="affine",
+            transform_type="fov-translation",
             max_gap=1,
             cost="registered-iou",
         )
     )
 
     assert len(rows) == 1
+    assert rows[0]["registration_backend"] == "fov-translation"
     assert rows[0]["target_roi_present"] is True
     assert rows[0]["registration_backend"] == "fov-translation"
-    assert "track2p.register.elastix import failed" in rows[0][
-        "registration_backend_reason"
-    ]
+    assert rows[0]["registration_backend_reason"] == (
+        "explicit transform_type='fov-translation'"
+    )
     assert np.isfinite(rows[0]["fov_translation_peak_correlation"])
     assert rows[0]["raw_mask_shape_matches"] is False
     assert np.isnan(rows[0]["raw_iou"])

@@ -38,6 +38,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=("registered-iou", "roi-aware", "calibrated"),
     )
     parser.add_argument("--max-gap", type=int, default=2)
+    parser.add_argument(
+        "--transform-type",
+        default="affine",
+        choices=("affine", "rigid", "fov-translation", "none"),
+    )
     parser.add_argument("--cost-threshold", type=float, default=6.0)
     parser.add_argument("--no-cost-threshold", action="store_true")
     parser.add_argument(
@@ -65,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
             reference_kind=cast(ReferenceKind, args.reference_kind),
             input_format=args.input_format,
             max_gap=args.max_gap,
+            transform_type=args.transform_type,
             cost=cast(RegistrationQACost, args.cost),
             cost_threshold=None if args.no_cost_threshold else args.cost_threshold,
             include_behavior=args.include_behavior,

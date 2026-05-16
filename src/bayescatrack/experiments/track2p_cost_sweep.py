@@ -295,7 +295,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-gap", type=int, default=2)
     parser.add_argument(
-        "--transform-type", default="affine", choices=("affine", "rigid", "none")
+        "--transform-type",
+        default="affine",
+        choices=("affine", "rigid", "fov-translation", "none"),
     )
     parser.add_argument("--start-cost", type=float, default=5.0)
     parser.add_argument("--end-cost", type=float, default=5.0)

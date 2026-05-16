@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 import numpy as np
 from bayescatrack import (
@@ -13,6 +13,15 @@ from bayescatrack import (
     Track2pSession,
     build_consecutive_session_association_bundles,
     load_track2p_subject,
+)
+
+
+RegistrationTransform = Literal["affine", "rigid", "fov-translation", "none"]
+REGISTRATION_TRANSFORM_TYPES: tuple[RegistrationTransform, ...] = (
+    "affine",
+    "rigid",
+    "fov-translation",
+    "none",
 )
 
 
@@ -41,7 +50,11 @@ def _load_track2p_registration_backend() -> tuple[Any, Any]:
         )
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "Track2p-compatible registration requires the 'track2p' package and its ITK/elastix stack."
+            "Track2p-compatible affine/rigid registration requires the 'track2p' "
+            "package and its ITK/elastix stack. Install that backend for "
+            "transform_type='affine' or transform_type='rigid', or request "
+            "transform_type='fov-translation' explicitly to use BayesCaTrack's "
+            "integer FOV phase-correlation fallback."
         ) from exc
     return reg_img_elastix, itk_reg_all_roi
 
@@ -59,39 +72,48 @@ def _coerce_registered_roi_masks(
     )
 
 
+def _fov_translation_registered_plane(
+    reference_plane: CalciumPlaneData,
+    moving_plane: CalciumPlaneData,
+    *,
+    transform_type: str = "fov-translation",
+    reason: str = "explicit transform_type='fov-translation'",
+) -> CalciumPlaneData:
+    from bayescatrack.fov_registration import (
+        register_measurement_plane_by_fov_translation,
+    )
+
+    registered_plane = register_measurement_plane_by_fov_translation(
+        reference_plane,
+        moving_plane,
+    ).registered_measurement_plane
+    return _with_registration_backend_metadata(
+        registered_plane,
+        backend="fov-translation",
+        transform_type=transform_type,
+        reason=reason,
+    )
+
+
 def register_plane_pair(
     reference_plane: CalciumPlaneData,
     moving_plane: CalciumPlaneData,
     *,
-    transform_type: str = "affine",
+    transform_type: RegistrationTransform | str = "affine",
 ) -> CalciumPlaneData:
+    if transform_type not in REGISTRATION_TRANSFORM_TYPES:
+        valid_types = ", ".join(repr(value) for value in REGISTRATION_TRANSFORM_TYPES)
+        raise ValueError(f"transform_type must be one of {valid_types}")
     if transform_type == "none":
         if reference_plane.image_shape != moving_plane.image_shape:
             raise ValueError("transform_type='none' requires matching image shapes")
         return moving_plane
-    if transform_type not in {"affine", "rigid"}:
-        raise ValueError("transform_type must be 'affine', 'rigid', or 'none'")
     if reference_plane.fov is None or moving_plane.fov is None:
         raise ValueError("Both planes must provide FOV images for registration.")
+    if transform_type == "fov-translation":
+        return _fov_translation_registered_plane(reference_plane, moving_plane)
 
-    try:
-        reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
-    except ImportError as exc:
-        from bayescatrack.fov_registration import (
-            register_measurement_plane_by_fov_translation,
-        )
-
-        registered_plane = register_measurement_plane_by_fov_translation(
-            reference_plane,
-            moving_plane,
-        ).registered_measurement_plane
-        return _with_registration_backend_metadata(
-            registered_plane,
-            backend="fov-translation",
-            transform_type=transform_type,
-            reason=f"track2p.register.elastix import failed: {exc}",
-        )
-
+    reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
     registered_fov, reg_params = reg_img_elastix(
         np.asarray(reference_plane.fov),
         np.asarray(moving_plane.fov),
@@ -157,7 +179,9 @@ def _with_registration_backend_metadata(
 
 
 def register_consecutive_session_measurement_planes(
-    sessions: Sequence[Track2pSession], *, transform_type: str = "affine"
+    sessions: Sequence[Track2pSession],
+    *,
+    transform_type: RegistrationTransform | str = "affine",
 ) -> list[CalciumPlaneData]:
     sessions = list(sessions)
     if len(sessions) < 2:
@@ -178,7 +202,7 @@ def build_registered_subject_association_bundles(  # pylint: disable=too-many-ar
     plane_name: str = "plane0",
     input_format: str = "auto",
     include_behavior: bool = True,
-    transform_type: str = "affine",
+    transform_type: RegistrationTransform | str = "affine",
     order: str = "xy",
     weighted_centroids: bool = False,
     velocity_variance: float = 25.0,

@@ -165,6 +165,7 @@ jobs:
             --include-non-cells \
             --no-include-behavior \
             --cost "$COST" \
+            --transform-type fov-translation \
             --max-gap "$MAX_GAP" \
             --cost-scales "$COST_SCALES" \
             --cost-thresholds "$COST_THRESHOLDS" \

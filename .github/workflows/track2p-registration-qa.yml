@@ -135,6 +135,7 @@ jobs:
             --include-non-cells \
             --no-include-behavior \
             --cost registered-iou \
+            --transform-type fov-translation \
             --max-gap "$MAX_GAP" \
             --cost-threshold "$COST_THRESHOLD" \
             --links-output "results/registration_qa_registered_iou_links_gap${MAX_GAP}.csv" \
@@ -156,6 +157,7 @@ jobs:
             --include-non-cells \
             --no-include-behavior \
             --cost roi-aware \
+            --transform-type fov-translation \
             --max-gap "$MAX_GAP" \
             --cost-threshold "$COST_THRESHOLD" \
             --links-output "results/registration_qa_roi_aware_links_gap${MAX_GAP}.csv" \
@@ -178,6 +180,7 @@ jobs:
             --include-non-cells \
             --no-include-behavior \
             --cost calibrated \
+            --transform-type fov-translation \
             --max-gap "$MAX_GAP" \
             --cost-threshold "$COST_THRESHOLD" \
             --links-output "results/registration_qa_calibrated_links_gap${MAX_GAP}.csv" \
