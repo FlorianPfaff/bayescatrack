@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 from bayescatrack.experiments.registration_qa_report import (
     RegistrationQAConfig,
+    format_registration_backend_audit_table,
     format_registration_qa_table,
     run_registration_qa_report,
+    summarize_registration_backend_usage,
     summarize_registration_qa_links,
 )
 
@@ -54,7 +56,10 @@ def test_registration_qa_report_summarizes_manual_gt_links(
 
     assert len(rows) == 2
     first = rows[0]
+    assert first["cost"] == "registered-iou"
     assert first["registration_backend"] == "none"
+    assert first["registered_plane_source"] == "raw_npy"
+    assert first["registration_backend_reason"] == "transform_type=none"
     assert first["registered_iou"] == pytest.approx(1.0)
     assert first["raw_iou"] == pytest.approx(1.0)
     assert first["registered_centroid_distance"] == pytest.approx(0.0)
@@ -94,6 +99,24 @@ def test_registration_qa_report_summarizes_manual_gt_links(
     assert "gt_recall_at_5" in table
     assert "jm001" in table
 
+    backend_audit = summarize_registration_backend_usage(rows)
+    assert len(backend_audit) == 1
+    assert backend_audit[0]["cost"] == "registered-iou"
+    assert backend_audit[0]["registration_backend"] == "none"
+    assert backend_audit[0]["transform_type"] == "none"
+    assert backend_audit[0]["registered_plane_source"] == "raw_npy"
+    assert backend_audit[0]["registration_backend_reason"] == "transform_type=none"
+    assert backend_audit[0]["edge_count"] == 1
+    assert backend_audit[0]["gt_link_rows"] == 2
+    assert backend_audit[0]["subject_count"] == 1
+    assert backend_audit[0]["subjects"] == "jm001"
+    assert np.isnan(backend_audit[0]["median_fov_translation_shift_y"])
+    assert np.isnan(backend_audit[0]["median_fov_translation_shift_x"])
+    assert np.isnan(backend_audit[0]["median_fov_translation_peak_correlation"])
+    assert "registration_backend" in format_registration_backend_audit_table(
+        backend_audit
+    )
+
 
 def test_registration_qa_report_tolerates_raw_mask_shape_mismatch(
     tmp_path,
@@ -126,6 +149,11 @@ def test_registration_qa_report_tolerates_raw_mask_shape_mismatch(
 
     assert len(rows) == 1
     assert rows[0]["target_roi_present"] is True
+    assert rows[0]["registration_backend"] == "fov-translation"
+    assert "track2p.register.elastix import failed" in rows[0][
+        "registration_backend_reason"
+    ]
+    assert np.isfinite(rows[0]["fov_translation_peak_correlation"])
     assert rows[0]["raw_mask_shape_matches"] is False
     assert np.isnan(rows[0]["raw_iou"])
     assert rows[0]["registered_iou"] == pytest.approx(1.0)

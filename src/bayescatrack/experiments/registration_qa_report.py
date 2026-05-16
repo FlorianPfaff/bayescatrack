@@ -46,7 +46,7 @@ from bayescatrack.experiments.track2p_benchmark import (
 from bayescatrack.track2p_registration import register_plane_pair
 
 RegistrationQACost = Literal["registered-iou", "roi-aware", "calibrated"]
-RegistrationQALevel = Literal["summary", "links"]
+RegistrationQALevel = Literal["summary", "links", "backend-audit"]
 OutputFormat = Literal["table", "json", "csv"]
 
 
@@ -207,11 +207,12 @@ def summarize_registration_qa_links(
 ) -> list[dict[str, Any]]:
     """Aggregate link-level QA rows by subject and session edge."""
 
-    grouped: dict[tuple[str, str, str, int], list[Mapping[str, Any]]] = defaultdict(
-        list
-    )
+    grouped: dict[
+        tuple[str, str, str, str, int], list[Mapping[str, Any]]
+    ] = defaultdict(list)
     for row in rows:
         key = (
+            str(row.get("cost", "")),
             str(row["subject"]),
             str(row["source_session_name"]),
             str(row["target_session_name"]),
@@ -220,17 +221,23 @@ def summarize_registration_qa_links(
         grouped[key].append(row)
 
     summary: list[dict[str, Any]] = []
-    for (subject, source_name, target_name, session_gap), group in sorted(
+    for (cost, subject, source_name, target_name, session_gap), group in sorted(
         grouped.items()
     ):
         summary.append(
             {
+                "cost": cost,
                 "subject": subject,
                 "source_session_name": source_name,
                 "target_session_name": target_name,
                 "session_gap": session_gap,
                 "n_gt_links": len(group),
                 "registration_backend": _mode(group, "registration_backend"),
+                "registered_plane_source": _mode(group, "registered_plane_source"),
+                "registration_backend_reason": _mode(
+                    group,
+                    "registration_backend_reason",
+                ),
                 "transform_type": _mode(group, "transform_type"),
                 "median_registered_iou": _stat(group, "registered_iou"),
                 "p10_registered_iou": _stat(group, "registered_iou", 10),
@@ -284,6 +291,7 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
     """Format summary rows as a compact Markdown table."""
 
     columns = [
+        "cost",
         "subject",
         "source_session_name",
         "target_session_name",
@@ -311,6 +319,136 @@ def format_registration_qa_table(rows: Sequence[Mapping[str, Any]]) -> str:
             "| " + " | ".join(_format_value(row.get(col, "")) for col in columns) + " |"
         )
     return "\n".join(body)
+
+
+def summarize_registration_backend_usage(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Summarize which registration backend was actually used per audited edge."""
+
+    edge_groups: dict[tuple[str, str, int, int], list[Mapping[str, Any]]] = defaultdict(
+        list
+    )
+    for row in rows:
+        edge_key = (
+            str(row.get("cost", "")),
+            str(row["subject"]),
+            int(row["source_session_index"]),
+            int(row["target_session_index"]),
+        )
+        edge_groups[edge_key].append(row)
+
+    backend_groups: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = (
+        defaultdict(list)
+    )
+    for edge_rows in edge_groups.values():
+        representative = edge_rows[0]
+        group_key = (
+            str(representative.get("cost", "")),
+            str(representative["registration_backend"]),
+            str(representative["transform_type"]),
+            str(representative.get("registered_plane_source", "")),
+            str(representative.get("registration_backend_reason", "")),
+        )
+        backend_groups[group_key].append(
+            {
+                **dict(representative),
+                "gt_link_rows": len(edge_rows),
+            }
+        )
+
+    summary: list[dict[str, Any]] = []
+    for (
+        cost,
+        registration_backend,
+        transform_type,
+        registered_plane_source,
+        registration_backend_reason,
+    ), backend_edge_rows in sorted(backend_groups.items()):
+        subjects = sorted({str(row["subject"]) for row in backend_edge_rows})
+        summary.append(
+            {
+                "cost": cost,
+                "registration_backend": registration_backend,
+                "transform_type": transform_type,
+                "registered_plane_source": registered_plane_source,
+                "registration_backend_reason": registration_backend_reason,
+                "edge_count": len(backend_edge_rows),
+                "gt_link_rows": int(
+                    sum(int(row["gt_link_rows"]) for row in backend_edge_rows)
+                ),
+                "subject_count": len(subjects),
+                "subjects": ",".join(subjects),
+                "median_fov_translation_shift_y": _stat(
+                    backend_edge_rows,
+                    "fov_translation_shift_y",
+                ),
+                "median_fov_translation_shift_x": _stat(
+                    backend_edge_rows,
+                    "fov_translation_shift_x",
+                ),
+                "median_fov_translation_peak_correlation": _stat(
+                    backend_edge_rows,
+                    "fov_translation_peak_correlation",
+                ),
+            }
+        )
+    return summary
+
+
+def format_registration_backend_audit_table(
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    """Format registration-backend usage rows as a compact Markdown table."""
+
+    columns = [
+        "cost",
+        "registration_backend",
+        "transform_type",
+        "registered_plane_source",
+        "edge_count",
+        "gt_link_rows",
+        "subject_count",
+        "subjects",
+        "median_fov_translation_shift_y",
+        "median_fov_translation_shift_x",
+        "median_fov_translation_peak_correlation",
+        "registration_backend_reason",
+    ]
+    body = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join(["---"] * len(columns)) + " |",
+    ]
+    for row in rows:
+        body.append(
+            "| " + " | ".join(_format_value(row.get(col, "")) for col in columns) + " |"
+        )
+    return "\n".join(body)
+
+
+def write_registration_backend_audit_results(
+    rows: Sequence[Mapping[str, Any]],
+    output_path: Path,
+    output_format: OutputFormat,
+) -> None:
+    """Write registration-backend audit rows as JSON, CSV, or Markdown."""
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_format == "json":
+        output_path.write_text(
+            json.dumps(list(rows), indent=2) + "\n", encoding="utf-8"
+        )
+        return
+    if output_format == "csv":
+        with output_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=_csv_fieldnames(rows))
+            writer.writeheader()
+            writer.writerows(rows)
+        return
+    output_path.write_text(
+        format_registration_backend_audit_table(rows) + "\n",
+        encoding="utf-8",
+    )
 
 
 def write_registration_qa_results(
@@ -382,7 +520,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--velocity-variance", type=float, default=25.0)
     parser.add_argument("--regularization", type=float, default=1.0e-6)
     parser.add_argument("--pairwise-cost-kwargs-json", default=None)
-    parser.add_argument("--level", default="summary", choices=("summary", "links"))
+    parser.add_argument(
+        "--level", default="summary", choices=("summary", "links", "backend-audit")
+    )
     parser.add_argument(
         "--progress", action=argparse.BooleanOptionalAction, default=True
     )
@@ -398,9 +538,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.level == "summary":
         rows = summarize_registration_qa_links(rows)
+    elif args.level == "backend-audit":
+        rows = summarize_registration_backend_usage(rows)
 
     if args.output is not None:
-        write_registration_qa_results(rows, args.output, args.format)
+        if args.level == "backend-audit":
+            write_registration_backend_audit_results(rows, args.output, args.format)
+        else:
+            write_registration_qa_results(rows, args.output, args.format)
     elif args.format == "json":
         print(json.dumps(list(rows), indent=2))
     elif args.format == "csv":
@@ -408,7 +553,10 @@ def main(argv: list[str] | None = None) -> int:
         writer.writeheader()
         writer.writerows(rows)
     else:
-        print(format_registration_qa_table(rows))
+        if args.level == "backend-audit":
+            print(format_registration_backend_audit_table(rows))
+        else:
+            print(format_registration_qa_table(rows))
     return 0
 
 
@@ -443,6 +591,10 @@ def _audit_subject(
             reference_session.plane_data,
             target_session.plane_data,
             transform_type=config.transform_type,
+        )
+        registration_metadata = _registration_metadata(
+            config.transform_type,
+            registered_plane,
         )
         registered_plane, empty_registered_rois = replace_empty_registered_masks(
             registered_plane
@@ -494,7 +646,7 @@ def _audit_subject(
                     else np.asarray(probability_matrix, dtype=float)
                 ),
                 empty_registered_rois,
-                _registration_backend(config.transform_type, registered_plane.source),
+                registration_metadata,
                 config,
             )
         )
@@ -514,7 +666,7 @@ def _audit_reference_links(
     cost_matrix: np.ndarray,
     probability_matrix: np.ndarray | None,
     empty_registered_rois: np.ndarray,
-    registration_backend: str,
+    registration_metadata: Mapping[str, Any],
     config: RegistrationQAConfig,
 ) -> list[dict[str, Any]]:
     source_lookup = _roi_lookup(source_session)
@@ -570,6 +722,7 @@ def _audit_reference_links(
         )
         rows.append(
             {
+                "cost": config.cost,
                 "subject": subject,
                 "source_session_index": source_index,
                 "target_session_index": target_index,
@@ -577,7 +730,22 @@ def _audit_reference_links(
                 "target_session_name": target_session.session_name,
                 "session_gap": target_index - source_index,
                 "track_index": track_index,
-                "registration_backend": registration_backend,
+                "registration_backend": registration_metadata["registration_backend"],
+                "registered_plane_source": registration_metadata[
+                    "registered_plane_source"
+                ],
+                "registration_backend_reason": registration_metadata[
+                    "registration_backend_reason"
+                ],
+                "fov_translation_shift_y": registration_metadata[
+                    "fov_translation_shift_y"
+                ],
+                "fov_translation_shift_x": registration_metadata[
+                    "fov_translation_shift_x"
+                ],
+                "fov_translation_peak_correlation": registration_metadata[
+                    "fov_translation_peak_correlation"
+                ],
                 "transform_type": config.transform_type,
                 "source_roi": source_roi_int,
                 "target_roi": target_roi_int,
@@ -871,6 +1039,32 @@ def _component_value(
     return np.asarray(components[key])[row, column].item()
 
 
+def _registration_metadata(
+    transform_type: str,
+    registered_plane: CalciumPlaneData,
+) -> dict[str, Any]:
+    ops = {} if registered_plane.ops is None else dict(registered_plane.ops)
+    source = str(registered_plane.source)
+    backend = str(
+        ops.get("registration_backend")
+        or _registration_backend(transform_type, source)
+    )
+    return {
+        "registration_backend": backend,
+        "registered_plane_source": source,
+        "registration_backend_reason": str(
+            ops.get("registration_backend_reason")
+            or _registration_backend_reason(transform_type, backend, source)
+        ),
+        "fov_translation_shift_y": _fov_translation_shift_component(ops, 0),
+        "fov_translation_shift_x": _fov_translation_shift_component(ops, 1),
+        "fov_translation_peak_correlation": _float_ops_value(
+            ops,
+            "fov_registration_peak_correlation",
+        ),
+    }
+
+
 def _registration_backend(transform_type: str, source: str) -> str:
     if transform_type == "none":
         return "none"
@@ -879,6 +1073,38 @@ def _registration_backend(transform_type: str, source: str) -> str:
     if "registered" in source:
         return "track2p-elastix"
     return "unknown"
+
+
+def _registration_backend_reason(transform_type: str, backend: str, source: str) -> str:
+    if transform_type == "none":
+        return "transform_type=none"
+    if backend == "fov-translation":
+        return "registered plane source contains 'fov_registered'"
+    if backend == "track2p-elastix":
+        return "registered plane source contains 'registered' without 'fov_registered'"
+    return f"could not infer registration backend from registered plane source {source!r}"
+
+
+def _fov_translation_shift_component(
+    ops: Mapping[str, Any],
+    index: int,
+) -> float:
+    shift = ops.get("fov_registration_measurement_to_reference_shift_yx")
+    if shift is None:
+        return np.nan
+    shift_array = np.asarray(shift, dtype=float).reshape(-1)
+    if shift_array.size <= index:
+        return np.nan
+    return float(shift_array[index])
+
+
+def _float_ops_value(ops: Mapping[str, Any], key: str) -> float:
+    if key not in ops:
+        return np.nan
+    try:
+        return float(ops[key])
+    except (TypeError, ValueError):
+        return np.nan
 
 
 def _finite_values(rows: Sequence[Mapping[str, Any]], key: str) -> np.ndarray:

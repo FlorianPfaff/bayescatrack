@@ -35,7 +35,10 @@ def _load_subject_sessions(
 
 def _load_track2p_registration_backend() -> tuple[Any, Any]:
     try:
-        from track2p.register.elastix import itk_reg_all_roi, reg_img_elastix
+        from track2p.register.elastix import (  # type: ignore[import-not-found]
+            itk_reg_all_roi,
+            reg_img_elastix,
+        )
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "Track2p-compatible registration requires the 'track2p' package and its ITK/elastix stack."
@@ -73,15 +76,21 @@ def register_plane_pair(
 
     try:
         reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
-    except ImportError:
+    except ImportError as exc:
         from bayescatrack.fov_registration import (
             register_measurement_plane_by_fov_translation,
         )
 
-        return register_measurement_plane_by_fov_translation(
+        registered_plane = register_measurement_plane_by_fov_translation(
             reference_plane,
             moving_plane,
         ).registered_measurement_plane
+        return _with_registration_backend_metadata(
+            registered_plane,
+            backend="fov-translation",
+            transform_type=transform_type,
+            reason=f"track2p.register.elastix import failed: {exc}",
+        )
 
     registered_fov, reg_params = reg_img_elastix(
         np.asarray(reference_plane.fov),
@@ -100,6 +109,50 @@ def register_plane_pair(
         registered_support_masks,
         fov=np.asarray(registered_fov),
         source=f"{moving_plane.source}_registered",
+        ops=_registration_backend_ops(
+            moving_plane.ops,
+            backend="track2p-elastix",
+            transform_type=transform_type,
+            reason="track2p.register.elastix import succeeded",
+        ),
+    )
+
+
+def _registration_backend_ops(
+    source_ops: Mapping[str, Any] | None,
+    *,
+    backend: str,
+    transform_type: str,
+    reason: str,
+) -> dict[str, Any]:
+    ops = {} if source_ops is None else dict(source_ops)
+    ops.update(
+        {
+            "registration_backend": backend,
+            "registration_transform_type": transform_type,
+            "registration_backend_reason": reason,
+        }
+    )
+    return ops
+
+
+def _with_registration_backend_metadata(
+    plane: CalciumPlaneData,
+    *,
+    backend: str,
+    transform_type: str,
+    reason: str,
+) -> CalciumPlaneData:
+    return plane.with_replaced_masks(
+        plane.roi_masks,
+        fov=plane.fov,
+        source=plane.source,
+        ops=_registration_backend_ops(
+            plane.ops,
+            backend=backend,
+            transform_type=transform_type,
+            reason=reason,
+        ),
     )
 
 
