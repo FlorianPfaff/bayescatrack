@@ -110,6 +110,8 @@ jobs:
             --output benchmark-raw-suite2p-subjects \
             --diagnostics-dir results \
             --exclude-subjects "$EXCLUDE_SUBJECTS" \
+            --no-require-track2p-suite2p-indices \
+            --filter-missing-manual-rois \
             --min-subjects 1
 
       - name: Add raw-data diagnostics to job summary

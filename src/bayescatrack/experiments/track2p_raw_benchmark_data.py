@@ -11,6 +11,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 from bayescatrack.core.bridge import find_track2p_session_dirs
 from bayescatrack.experiments.track2p_benchmark import (
     GROUND_TRUTH_CSV_NAME,
@@ -68,6 +69,7 @@ class RawBenchmarkPreparation:
     excluded_no_ground_truth: tuple[str, ...] = ()
     excluded_no_track2p_suite2p_indices: tuple[str, ...] = ()
     excluded_incompatible: tuple[str, ...] = ()
+    filtered_manual_gt_tracks: tuple[str, ...] = ()
     diagnostics: tuple[RawBenchmarkDiagnostic, ...] = ()
 
     @property
@@ -88,6 +90,7 @@ class RawBenchmarkPreparation:
                 self.excluded_no_track2p_suite2p_indices
             ),
             "excluded_incompatible": ",".join(self.excluded_incompatible),
+            "filtered_manual_gt_tracks": ",".join(self.filtered_manual_gt_tracks),
             "has_usable_subjects": str(self.has_usable_subjects).lower(),
         }
 
@@ -110,6 +113,8 @@ def prepare_raw_suite2p_benchmark_data(
     exclude_subjects: Iterable[str] = (),
     min_subjects: int = 1,
     diagnostics_dir: Path | None = None,
+    require_track2p_suite2p_indices: bool = True,
+    filter_missing_manual_rois: bool = False,
 ) -> RawBenchmarkPreparation:
     """Build a benchmark tree using raw Suite2p sessions and Track2p/GT metadata."""
 
@@ -136,6 +141,7 @@ def prepare_raw_suite2p_benchmark_data(
     excluded_no_gt: list[str] = []
     excluded_no_suite2p_indices: list[str] = []
     excluded_incompatible: list[str] = []
+    filtered_manual_gt_tracks: list[str] = []
     diagnostics: list[RawBenchmarkDiagnostic] = []
 
     for subject_name in subject_names:
@@ -156,7 +162,7 @@ def prepare_raw_suite2p_benchmark_data(
             if metadata_subject.has_track2p_suite2p_indices
             else raw_subject if raw_subject.has_track2p_suite2p_indices else None
         )
-        if track2p_subject is None:
+        if require_track2p_suite2p_indices and track2p_subject is None:
             excluded_no_suite2p_indices.append(subject_name)
             continue
 
@@ -169,13 +175,22 @@ def prepare_raw_suite2p_benchmark_data(
             metadata_subject.path / GROUND_TRUTH_CSV_NAME,
             prepared_subject / GROUND_TRUTH_CSV_NAME,
         )
-        _link_path(track2p_subject.path / "track2p", prepared_subject / "track2p")
+        if track2p_subject is not None:
+            _link_path(track2p_subject.path / "track2p", prepared_subject / "track2p")
 
-        incompatibilities, subject_diagnostics = _validate_prepared_subject(
-            prepared_subject,
-            plane_name=plane_name,
+        incompatibilities, subject_diagnostics, removed_manual_gt_tracks = (
+            _validate_prepared_subject(
+                prepared_subject,
+                plane_name=plane_name,
+                require_track2p_suite2p_indices=require_track2p_suite2p_indices,
+                filter_missing_manual_rois=filter_missing_manual_rois,
+            )
         )
         diagnostics.extend(subject_diagnostics)
+        if removed_manual_gt_tracks:
+            filtered_manual_gt_tracks.append(
+                f"{subject_name}:{removed_manual_gt_tracks}"
+            )
         if incompatibilities:
             shutil.rmtree(prepared_subject)
             excluded_incompatible.append(
@@ -193,6 +208,7 @@ def prepare_raw_suite2p_benchmark_data(
         excluded_no_ground_truth=tuple(sorted(excluded_no_gt)),
         excluded_no_track2p_suite2p_indices=tuple(sorted(excluded_no_suite2p_indices)),
         excluded_incompatible=tuple(sorted(excluded_incompatible)),
+        filtered_manual_gt_tracks=tuple(sorted(filtered_manual_gt_tracks)),
         diagnostics=tuple(diagnostics),
     )
     if diagnostics_dir is not None:
@@ -248,6 +264,7 @@ def write_raw_benchmark_diagnostics(
         f"Excluded without ground_truth.csv: {', '.join(preparation.excluded_no_ground_truth) or '(none)'}",
         f"Excluded without track2p/{preparation.plane_name}_suite2p_indices.npy: {', '.join(preparation.excluded_no_track2p_suite2p_indices) or '(none)'}",
         f"Excluded with incompatible ROI indices: {', '.join(preparation.excluded_incompatible) or '(none)'}",
+        f"Filtered manual-GT tracks with absent raw Suite2p ROIs: {', '.join(preparation.filtered_manual_gt_tracks) or '(none)'}",
         "",
         "| subject | source | session | referenced ROIs | loaded ROIs | missing ROIs | compatible |",
         "| --- | --- | --- | ---: | ---: | ---: | --- |",
@@ -334,8 +351,12 @@ def _link_raw_suite2p_sessions(
 
 
 def _validate_prepared_subject(
-    subject_dir: Path, *, plane_name: str
-) -> tuple[list[str], list[RawBenchmarkDiagnostic]]:
+    subject_dir: Path,
+    *,
+    plane_name: str,
+    require_track2p_suite2p_indices: bool,
+    filter_missing_manual_rois: bool,
+) -> tuple[list[str], list[RawBenchmarkDiagnostic], int]:
     config = Track2pBenchmarkConfig(
         data=subject_dir.parent,
         method="track2p-baseline",
@@ -350,19 +371,36 @@ def _validate_prepared_subject(
         subject_dir / GROUND_TRUTH_CSV_NAME,
         subject_dir=subject_dir,
     )
-    track2p_reference = load_track2p_reference(
-        subject_dir / "track2p", plane_name=plane_name
-    )
-    references = (
-        ("manual_gt", ground_truth),
-        ("track2p_suite2p_indices", track2p_reference),
-    )
-
     incompatibilities: list[str] = []
     diagnostics: list[RawBenchmarkDiagnostic] = []
-    if track2p_reference.source != "track2p_output_suite2p_indices":
+    removed_manual_gt_tracks = 0
+
+    if filter_missing_manual_rois:
+        ground_truth, removed_manual_gt_tracks = _filter_reference_to_loaded_rois(
+            ground_truth,
+            sessions,
+        )
+        if removed_manual_gt_tracks:
+            _write_ground_truth_reference_csv(
+                ground_truth,
+                subject_dir / GROUND_TRUTH_CSV_NAME,
+            )
+
+    references: list[tuple[str, Track2pReference]] = [("manual_gt", ground_truth)]
+    track2p_dir = subject_dir / "track2p"
+    if track2p_dir.exists():
+        track2p_reference = load_track2p_reference(track2p_dir, plane_name=plane_name)
+        references.append(("track2p_suite2p_indices", track2p_reference))
+        if (
+            require_track2p_suite2p_indices
+            and track2p_reference.source != "track2p_output_suite2p_indices"
+        ):
+            incompatibilities.append(
+                f"Track2p reference source is {track2p_reference.source}, not track2p_output_suite2p_indices"
+            )
+    elif require_track2p_suite2p_indices:
         incompatibilities.append(
-            f"Track2p reference source is {track2p_reference.source}, not track2p_output_suite2p_indices"
+            f"Missing track2p/{plane_name}_suite2p_indices.npy"
         )
 
     for source, reference in references:
@@ -374,14 +412,70 @@ def _validate_prepared_subject(
         )
         if source == "manual_gt":
             incompatibilities.extend(source_incompatibilities)
-        else:
+        elif require_track2p_suite2p_indices:
             incompatibilities.extend(
                 incompatibility
                 for incompatibility in source_incompatibilities
                 if "missing ROI indices" not in incompatibility
             )
         diagnostics.extend(source_diagnostics)
-    return incompatibilities, diagnostics
+    return incompatibilities, diagnostics, removed_manual_gt_tracks
+
+
+def _filter_reference_to_loaded_rois(
+    reference: Track2pReference,
+    sessions: Sequence,
+) -> tuple[Track2pReference, int]:
+    if len(sessions) != reference.n_sessions:
+        return reference, 0
+    session_names = tuple(session.session_name for session in sessions)
+    if session_names != reference.session_names:
+        return reference, 0
+
+    available_by_session = [
+        set(_loaded_suite2p_index_set(session)) for session in sessions
+    ]
+    keep = np.ones((reference.n_tracks,), dtype=bool)
+    for row_index, row in enumerate(reference.suite2p_indices):
+        for session_index, value in enumerate(row):
+            if value is not None and int(value) not in available_by_session[
+                session_index
+            ]:
+                keep[row_index] = False
+                break
+
+    removed = int(np.count_nonzero(~keep))
+    if removed == 0:
+        return reference, 0
+    curated_mask = (
+        None if reference.curated_mask is None else reference.curated_mask[keep]
+    )
+    return (
+        Track2pReference(
+            session_names=reference.session_names,
+            suite2p_indices=reference.suite2p_indices[keep],
+            session_dates=reference.session_dates,
+            curated_mask=curated_mask,
+            source=reference.source,
+        ),
+        removed,
+    )
+
+
+def _write_ground_truth_reference_csv(
+    reference: Track2pReference,
+    output_path: Path,
+) -> None:
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(("track_id", *reference.session_names))
+        for track_id, row in enumerate(reference.suite2p_indices):
+            writer.writerow(
+                (
+                    track_id,
+                    *("" if value is None else int(value) for value in row),
+                )
+            )
 
 
 def _reference_coverage_diagnostics(
@@ -476,6 +570,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plane", default="plane0")
     parser.add_argument("--exclude-subjects", default="")
     parser.add_argument("--min-subjects", type=int, default=1)
+    parser.add_argument(
+        "--require-track2p-suite2p-indices",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Require a compatible track2p/<plane>_suite2p_indices.npy bridge. "
+            "Disable for manual-GT-only diagnostics that do not run Track2p baseline rows."
+        ),
+    )
+    parser.add_argument(
+        "--filter-missing-manual-rois",
+        action="store_true",
+        help=(
+            "Drop manual-GT tracks that reference Suite2p ROI indices absent from "
+            "the loaded raw sessions. This is diagnostic-only and is reported in outputs."
+        ),
+    )
     return parser
 
 
@@ -489,6 +600,8 @@ def main(argv: list[str] | None = None) -> int:
         exclude_subjects=_parse_excluded_subjects(args.exclude_subjects),
         min_subjects=args.min_subjects,
         diagnostics_dir=args.diagnostics_dir,
+        require_track2p_suite2p_indices=args.require_track2p_suite2p_indices,
+        filter_missing_manual_rois=args.filter_missing_manual_rois,
     )
     outputs = preparation.to_outputs()
     _write_github_outputs(outputs)

@@ -173,3 +173,58 @@ def test_prepare_raw_suite2p_benchmark_data_rejects_missing_raw_indices(tmp_path
     )
     assert "jm046" in diagnostics
     assert "false" in diagnostics
+
+
+def test_prepare_raw_suite2p_benchmark_data_can_filter_missing_manual_gt_rows(
+    tmp_path,
+):
+    raw_root = tmp_path / "raw"
+    metadata_root = tmp_path / "metadata"
+    _write_raw_suite2p_subject(raw_root, "jm046")
+    metadata_subject = _write_metadata_subject(
+        metadata_root,
+        "jm046",
+        include_track2p=False,
+    )
+    _write_ground_truth_csv(
+        metadata_subject,
+        ("2024-05-01_a", "2024-05-02_a"),
+        ((0, 0), (5, 5)),
+    )
+
+    preparation = prepare_raw_suite2p_benchmark_data(
+        raw_root=raw_root,
+        metadata_root=metadata_root,
+        output_root=tmp_path / "prepared",
+        diagnostics_dir=tmp_path / "results",
+        require_track2p_suite2p_indices=False,
+        filter_missing_manual_rois=True,
+    )
+
+    assert preparation.included == ("jm046",)
+    assert preparation.excluded_no_track2p_suite2p_indices == ()
+    assert preparation.excluded_incompatible == ()
+    assert preparation.filtered_manual_gt_tracks == ("jm046:1",)
+    prepared_ground_truth = (
+        preparation.output_root / "jm046" / "ground_truth.csv"
+    ).read_text(encoding="utf-8")
+    assert "5,5" not in prepared_ground_truth
+    assert prepared_ground_truth.count("\n") == 2
+    assert "Filtered manual-GT tracks with absent raw Suite2p ROIs: jm046:1" in (
+        tmp_path / "results" / "raw_suite2p_roi_diagnostics.md"
+    ).read_text(encoding="utf-8")
+
+    rows = run_track2p_benchmark(
+        Track2pBenchmarkConfig(
+            data=preparation.output_root,
+            reference=preparation.output_root,
+            reference_kind="manual-gt",
+            method="global-assignment",
+            input_format="suite2p",
+            include_non_cells=True,
+            include_behavior=False,
+            transform_type="none",
+            max_gap=1,
+        )
+    )
+    assert rows[0].to_dict()["subject"] == "jm046"
