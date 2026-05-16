@@ -120,7 +120,7 @@ jobs:
           MAX_GAP: ${{ inputs.max_gap }}
           COST_THRESHOLD: ${{ inputs.cost_threshold }}
         run: |
-          bayescatrack benchmark registration-qa \
+          python .github/scripts/run_registration_qa.py \
             --data "${{ steps.prep.outputs.data_root }}" \
             --reference "${{ steps.prep.outputs.reference_root }}" \
             --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
@@ -130,42 +130,16 @@ jobs:
             --cost registered-iou \
             --max-gap "$MAX_GAP" \
             --cost-threshold "$COST_THRESHOLD" \
-            --level links \
-            --format csv \
-            --output "results/registration_qa_registered_iou_links_gap${MAX_GAP}.csv"
-          bayescatrack benchmark registration-qa \
-            --data "${{ steps.prep.outputs.data_root }}" \
-            --reference "${{ steps.prep.outputs.reference_root }}" \
-            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
-            --input-format suite2p \
-            --include-non-cells \
-            --no-include-behavior \
-            --cost registered-iou \
-            --max-gap "$MAX_GAP" \
-            --cost-threshold "$COST_THRESHOLD" \
-            --level summary \
-            --format csv \
-            --output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.csv"
-          bayescatrack benchmark registration-qa \
-            --data "${{ steps.prep.outputs.data_root }}" \
-            --reference "${{ steps.prep.outputs.reference_root }}" \
-            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
-            --input-format suite2p \
-            --include-non-cells \
-            --no-include-behavior \
-            --cost registered-iou \
-            --max-gap "$MAX_GAP" \
-            --cost-threshold "$COST_THRESHOLD" \
-            --level summary \
-            --format table \
-            --output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.md"
+            --links-output "results/registration_qa_registered_iou_links_gap${MAX_GAP}.csv" \
+            --summary-csv-output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.csv" \
+            --summary-table-output "results/registration_qa_registered_iou_summary_gap${MAX_GAP}.md"
 
       - name: Run ROI-aware registration QA
         env:
           MAX_GAP: ${{ inputs.max_gap }}
           COST_THRESHOLD: ${{ inputs.cost_threshold }}
         run: |
-          bayescatrack benchmark registration-qa \
+          python .github/scripts/run_registration_qa.py \
             --data "${{ steps.prep.outputs.data_root }}" \
             --reference "${{ steps.prep.outputs.reference_root }}" \
             --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
@@ -177,39 +151,9 @@ jobs:
             --cost-threshold "$COST_THRESHOLD" \
             --weighted-masks \
             --weighted-centroids \
-            --level links \
-            --format csv \
-            --output "results/registration_qa_roi_aware_links_gap${MAX_GAP}.csv"
-          bayescatrack benchmark registration-qa \
-            --data "${{ steps.prep.outputs.data_root }}" \
-            --reference "${{ steps.prep.outputs.reference_root }}" \
-            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
-            --input-format suite2p \
-            --include-non-cells \
-            --no-include-behavior \
-            --cost roi-aware \
-            --max-gap "$MAX_GAP" \
-            --cost-threshold "$COST_THRESHOLD" \
-            --weighted-masks \
-            --weighted-centroids \
-            --level summary \
-            --format csv \
-            --output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.csv"
-          bayescatrack benchmark registration-qa \
-            --data "${{ steps.prep.outputs.data_root }}" \
-            --reference "${{ steps.prep.outputs.reference_root }}" \
-            --reference-kind "${{ steps.prep.outputs.reference_kind }}" \
-            --input-format suite2p \
-            --include-non-cells \
-            --no-include-behavior \
-            --cost roi-aware \
-            --max-gap "$MAX_GAP" \
-            --cost-threshold "$COST_THRESHOLD" \
-            --weighted-masks \
-            --weighted-centroids \
-            --level summary \
-            --format table \
-            --output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.md"
+            --links-output "results/registration_qa_roi_aware_links_gap${MAX_GAP}.csv" \
+            --summary-csv-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.csv" \
+            --summary-table-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.md"
 
       - name: Add registration QA summaries to job summary
         if: always()
