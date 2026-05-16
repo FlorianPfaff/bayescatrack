@@ -187,6 +187,7 @@ def build_track_rows_from_matches(
     ],
     *,
     start_roi_indices: Sequence[int] | None = None,
+    start_session_index: int = 0,
     fill_value: int = -1,
 ) -> np.ndarray:
     """Stitch consecutive matches into wide track rows.
@@ -198,8 +199,11 @@ def build_track_rows_from_matches(
     matches
         One match representation per consecutive session pair.
     start_roi_indices
-        ROI indices from the first session from which tracks should be grown.
-        If omitted, the sorted keys of the first match mapping are used.
+        ROI indices from ``start_session_index`` from which tracks should be grown.
+        If omitted, indices are inferred from the adjacent match mapping where
+        possible.
+    start_session_index
+        Session column that contains ``start_roi_indices``.
     fill_value
         Integer used for missing/unmatched entries.
     """
@@ -210,16 +214,28 @@ def build_track_rows_from_matches(
     if len(matches) != max(len(session_names) - 1, 0):
         raise ValueError("matches must have length len(session_names) - 1")
 
+    start_session_index = int(start_session_index)
+    if start_session_index < 0 or start_session_index >= len(session_names):
+        raise IndexError(
+            f"start_session_index {start_session_index} out of bounds "
+            f"for {len(session_names)} sessions"
+        )
+
     normalized_matches = [_normalize_match_mapping(match) for match in matches]
 
     if start_roi_indices is None:
-        if not normalized_matches:
-            raise ValueError(
-                "start_roi_indices must be provided when there are no consecutive matches"
-            )
-        start_roi_indices = sorted(normalized_matches[0])
+        start_roi_indices = _default_start_roi_indices(
+            normalized_matches,
+            start_session_index=start_session_index,
+            n_sessions=len(session_names),
+        )
     else:
         start_roi_indices = [int(index) for index in start_roi_indices]
+
+    reverse_matches = [
+        _invert_match_mapping(normalized_matches[match_index])
+        for match_index in range(start_session_index)
+    ]
 
     track_rows = np.full(
         (len(start_roi_indices), len(session_names)), int(fill_value), dtype=int
@@ -227,15 +243,24 @@ def build_track_rows_from_matches(
     if len(start_roi_indices) == 0:
         return track_rows
 
-    track_rows[:, 0] = np.asarray(start_roi_indices, dtype=int)
+    track_rows[:, start_session_index] = np.asarray(start_roi_indices, dtype=int)
     for row_index, start_roi in enumerate(start_roi_indices):
         current_roi = int(start_roi)
-        for match_index, mapping in enumerate(normalized_matches):
+        for match_index in range(start_session_index, len(normalized_matches)):
+            mapping = normalized_matches[match_index]
             next_roi = int(mapping.get(current_roi, fill_value))
             track_rows[row_index, match_index + 1] = next_roi
             if next_roi == fill_value:
                 break
             current_roi = next_roi
+
+        current_roi = int(start_roi)
+        for match_index in range(start_session_index - 1, -1, -1):
+            previous_roi = int(reverse_matches[match_index].get(current_roi, fill_value))
+            track_rows[row_index, match_index] = previous_roi
+            if previous_roi == fill_value:
+                break
+            current_roi = previous_roi
     return track_rows
 
 
@@ -244,6 +269,7 @@ def build_track_rows_from_bundles(
     *,
     max_cost: float | None = None,
     start_roi_indices: Sequence[int] | None = None,
+    start_session_index: int = 0,
     fill_value: int = -1,
 ) -> tuple[tuple[str, ...], np.ndarray, list[SessionMatchResult]]:
     """Solve consecutive bundles and stitch them into wide track rows."""
@@ -258,11 +284,12 @@ def build_track_rows_from_bundles(
     )
     session_names = _session_names_from_bundles(bundles)
     if start_roi_indices is None:
-        start_roi_indices = np.asarray(bundles[0].reference_roi_indices, dtype=int)
+        start_roi_indices = _bundle_roi_indices_for_session(bundles, start_session_index)
     track_rows = build_track_rows_from_matches(
         session_names,
         match_results,
         start_roi_indices=start_roi_indices,
+        start_session_index=start_session_index,
         fill_value=fill_value,
     )
     return session_names, track_rows, match_results
@@ -313,6 +340,51 @@ def _session_names_from_bundles(bundles: Sequence[Any]) -> tuple[str, ...]:
             raise ValueError("bundles must refer to consecutive sessions in order")
         session_names.append(measurement_session_name)
     return tuple(session_names)
+
+
+def _bundle_roi_indices_for_session(
+    bundles: Sequence[Any], session_index: int
+) -> np.ndarray:
+    """Return ROI indices for one session from consecutive association bundles."""
+
+    n_sessions = len(bundles) + 1
+    session_index = int(session_index)
+    if session_index < 0 or session_index >= n_sessions:
+        raise IndexError(
+            f"start_session_index {session_index} out of bounds for {n_sessions} sessions"
+        )
+    if session_index == 0:
+        return np.asarray(bundles[0].reference_roi_indices, dtype=int)
+    if session_index == n_sessions - 1:
+        return np.asarray(bundles[-1].measurement_roi_indices, dtype=int)
+    return np.asarray(bundles[session_index].reference_roi_indices, dtype=int)
+
+
+def _default_start_roi_indices(
+    normalized_matches: Sequence[Mapping[int, int]],
+    *,
+    start_session_index: int,
+    n_sessions: int,
+) -> list[int]:
+    if n_sessions == 1:
+        raise ValueError(
+            "start_roi_indices must be provided when there are no consecutive matches"
+        )
+    if start_session_index < len(normalized_matches):
+        return sorted(normalized_matches[start_session_index])
+    return sorted(_invert_match_mapping(normalized_matches[start_session_index - 1]))
+
+
+def _invert_match_mapping(mapping: Mapping[int, int]) -> dict[int, int]:
+    inverted: dict[int, int] = {}
+    for reference_roi, measurement_roi in mapping.items():
+        measurement_roi = int(measurement_roi)
+        if measurement_roi in inverted:
+            raise ValueError(
+                "match mappings must be one-to-one to stitch tracks backward from a later start session"
+            )
+        inverted[measurement_roi] = int(reference_roi)
+    return inverted
 
 
 def _normalize_match_mapping(
