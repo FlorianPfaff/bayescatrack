@@ -309,6 +309,17 @@ def _audit_subject(
     ):
         reference_session = sessions[source_index]
         target_session = sessions[target_index]
+        linked_source_rois = _linked_source_rois(
+            reference_matrix,
+            source_index,
+            target_index,
+        )
+        if not linked_source_rois:
+            continue
+        cost_reference_session, cost_source_lookup = _subset_reference_session(
+            reference_session,
+            linked_source_rois,
+        )
         registered_plane = register_plane_pair(
             reference_session.plane_data,
             target_session.plane_data,
@@ -318,12 +329,12 @@ def _audit_subject(
             registered_plane
         )
         raw_components = _raw_pairwise_components(
-            reference_session.plane_data,
+            cost_reference_session.plane_data,
             target_session.plane_data,
             config,
         )
         registered_bundle = _association_bundle(
-            reference_session,
+            cost_reference_session,
             target_session,
             registered_plane,
             config,
@@ -336,6 +347,7 @@ def _audit_subject(
                 reference_session,
                 target_session,
                 reference_matrix,
+                cost_source_lookup,
                 raw_components,
                 registered_bundle.pairwise_components,
                 np.asarray(registered_bundle.pairwise_cost_matrix, dtype=float),
@@ -354,6 +366,7 @@ def _audit_reference_links(
     source_session: Track2pSession,
     target_session: Track2pSession,
     reference_matrix: np.ndarray,
+    cost_source_lookup: Mapping[int, int],
     raw_components: Mapping[str, np.ndarray],
     registered_components: Mapping[str, np.ndarray],
     cost_matrix: np.ndarray,
@@ -370,8 +383,14 @@ def _audit_reference_links(
         target_roi = track[target_index]
         if source_roi is None or target_roi is None:
             continue
-        source_local = source_lookup[int(source_roi)]
-        target_local = target_lookup[int(target_roi)]
+        source_roi_int = int(source_roi)
+        target_roi_int = int(target_roi)
+        source_present = source_roi_int in source_lookup
+        target_present = target_roi_int in target_lookup
+        if not source_present or not target_present:
+            continue
+        source_local = cost_source_lookup[source_roi_int]
+        target_local = target_lookup[target_roi_int]
         cost_row = cost_matrix[source_local]
         gt_cost = float(cost_row[target_local])
         gt_rank = int(1 + np.count_nonzero(cost_row < gt_cost))
@@ -403,10 +422,10 @@ def _audit_reference_links(
                 "track_index": track_index,
                 "registration_backend": registration_backend,
                 "transform_type": config.transform_type,
-                "source_roi": int(source_roi),
-                "target_roi": int(target_roi),
-                "source_roi_present": True,
-                "target_roi_present": True,
+                "source_roi": source_roi_int,
+                "target_roi": target_roi_int,
+                "source_roi_present": source_present,
+                "target_roi_present": target_present,
                 "raw_mask_shape_matches": (
                     source_session.plane_data.image_shape
                     == target_session.plane_data.image_shape
@@ -458,6 +477,90 @@ def _audit_reference_links(
             }
         )
     return rows
+
+
+def _linked_source_rois(
+    reference_matrix: np.ndarray,
+    source_index: int,
+    target_index: int,
+) -> tuple[int, ...]:
+    linked_rois: list[int] = []
+    seen: set[int] = set()
+    for track in reference_matrix:
+        source_roi = track[source_index]
+        target_roi = track[target_index]
+        if source_roi is None or target_roi is None:
+            continue
+        source_roi_int = int(source_roi)
+        if source_roi_int in seen:
+            continue
+        seen.add(source_roi_int)
+        linked_rois.append(source_roi_int)
+    return tuple(linked_rois)
+
+
+def _subset_reference_session(
+    session: Track2pSession,
+    roi_values: Sequence[int],
+) -> tuple[Track2pSession, dict[int, int]]:
+    roi_lookup = _roi_lookup(session)
+    local_indices = np.asarray(
+        [roi_lookup[int(roi_value)] for roi_value in roi_values],
+        dtype=int,
+    )
+    subset_plane = _subset_plane(session.plane_data, local_indices)
+    subset_session = Track2pSession(
+        session_dir=session.session_dir,
+        session_name=session.session_name,
+        session_date=session.session_date,
+        plane_data=subset_plane,
+        motion_energy=session.motion_energy,
+    )
+    return subset_session, {
+        int(roi_value): subset_index
+        for subset_index, roi_value in enumerate(roi_values)
+    }
+
+
+def _subset_plane(
+    plane: CalciumPlaneData,
+    local_indices: np.ndarray,
+) -> CalciumPlaneData:
+    return CalciumPlaneData(
+        roi_masks=np.asarray(plane.roi_masks)[local_indices],
+        traces=_slice_optional_roi_array(plane.traces, local_indices),
+        fov=plane.fov,
+        spike_traces=_slice_optional_roi_array(plane.spike_traces, local_indices),
+        neuropil_traces=_slice_optional_roi_array(
+            plane.neuropil_traces,
+            local_indices,
+        ),
+        cell_probabilities=_slice_optional_roi_array(
+            plane.cell_probabilities,
+            local_indices,
+        ),
+        roi_indices=(
+            None
+            if plane.roi_indices is None
+            else np.asarray(plane.roi_indices, dtype=int)[local_indices]
+        ),
+        roi_features={
+            key: np.asarray(value)[local_indices]
+            for key, value in plane.roi_features.items()
+        },
+        source=plane.source,
+        plane_name=plane.plane_name,
+        ops=plane.ops,
+    )
+
+
+def _slice_optional_roi_array(
+    value: np.ndarray | None,
+    local_indices: np.ndarray,
+) -> np.ndarray | None:
+    if value is None:
+        return None
+    return np.asarray(value)[local_indices]
 
 
 def _association_bundle(
