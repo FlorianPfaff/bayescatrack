@@ -149,8 +149,6 @@ jobs:
             --cost roi-aware \
             --max-gap "$MAX_GAP" \
             --cost-threshold "$COST_THRESHOLD" \
-            --weighted-masks \
-            --weighted-centroids \
             --links-output "results/registration_qa_roi_aware_links_gap${MAX_GAP}.csv" \
             --summary-csv-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.csv" \
             --summary-table-output "results/registration_qa_roi_aware_summary_gap${MAX_GAP}.md"
