@@ -399,9 +399,7 @@ def _validate_prepared_subject(
                 f"Track2p reference source is {track2p_reference.source}, not track2p_output_suite2p_indices"
             )
     elif require_track2p_suite2p_indices:
-        incompatibilities.append(
-            f"Missing track2p/{plane_name}_suite2p_indices.npy"
-        )
+        incompatibilities.append(f"Missing track2p/{plane_name}_suite2p_indices.npy")
 
     for source, reference in references:
         source_incompatibilities, source_diagnostics = _reference_coverage_diagnostics(
@@ -438,9 +436,10 @@ def _filter_reference_to_loaded_rois(
     keep = np.ones((reference.n_tracks,), dtype=bool)
     for row_index, row in enumerate(reference.suite2p_indices):
         for session_index, value in enumerate(row):
-            if value is not None and int(value) not in available_by_session[
-                session_index
-            ]:
+            if (
+                value is not None
+                and int(value) not in available_by_session[session_index]
+            ):
                 keep[row_index] = False
                 break
 
