@@ -22,7 +22,11 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from . import Track2pSession, load_track2p_subject
-from .matching import SessionMatchResult, build_track_rows_from_bundles
+from .matching import (
+    DEFAULT_ASSIGNMENT_MAX_COST,
+    SessionMatchResult,
+    build_track_rows_from_bundles,
+)
 from .registration import (
     RegisteredConsecutiveBundles,
     RegistrationModel,
@@ -160,7 +164,7 @@ def run_registered_subject_tracking(
     binarize_registered_masks: bool = False,
     registered_mask_threshold: float = 0.5,
     # jscpd:ignore-end
-    assignment_max_cost: float | None = None,
+    assignment_max_cost: float | None = DEFAULT_ASSIGNMENT_MAX_COST,
     start_roi_indices: Sequence[int] | None = None,
     start_session_index: int = 0,
     fill_value: int = -1,
