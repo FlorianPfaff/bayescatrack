@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# pylint: disable=protected-access
+
 from bayescatrack.experiments import registration_qa_report
 from bayescatrack.experiments import track2p_benchmark
 from bayescatrack.experiments import track2p_calibration_export
