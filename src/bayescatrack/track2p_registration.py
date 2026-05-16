@@ -16,6 +16,9 @@ from bayescatrack import (
 )
 
 
+_VALID_TRANSFORM_TYPES = {"affine", "rigid", "fov-translation", "none"}
+
+
 def _load_subject_sessions(
     subject_dir: str | Path,
     *,
@@ -38,7 +41,11 @@ def _load_track2p_registration_backend() -> tuple[Any, Any]:
         from track2p.register.elastix import itk_reg_all_roi, reg_img_elastix
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "Track2p-compatible registration requires the 'track2p' package and its ITK/elastix stack."
+            "Track2p-compatible affine/rigid registration requires the 'track2p' "
+            "package and its ITK/elastix stack. Install that backend for "
+            "transform_type='affine' or transform_type='rigid', or request "
+            "transform_type='fov-translation' explicitly to use BayesCaTrack's "
+            "integer FOV phase-correlation fallback."
         ) from exc
     return reg_img_elastix, itk_reg_all_roi
 
@@ -56,33 +63,40 @@ def _coerce_registered_roi_masks(
     )
 
 
+def _fov_translation_registered_plane(
+    reference_plane: CalciumPlaneData,
+    moving_plane: CalciumPlaneData,
+) -> CalciumPlaneData:
+    from bayescatrack.fov_registration import (
+        register_measurement_plane_by_fov_translation,
+    )
+
+    return register_measurement_plane_by_fov_translation(
+        reference_plane,
+        moving_plane,
+    ).registered_measurement_plane
+
+
 def register_plane_pair(
     reference_plane: CalciumPlaneData,
     moving_plane: CalciumPlaneData,
     *,
     transform_type: str = "affine",
 ) -> CalciumPlaneData:
+    if transform_type not in _VALID_TRANSFORM_TYPES:
+        raise ValueError(
+            "transform_type must be 'affine', 'rigid', 'fov-translation', or 'none'"
+        )
     if transform_type == "none":
         if reference_plane.image_shape != moving_plane.image_shape:
             raise ValueError("transform_type='none' requires matching image shapes")
         return moving_plane
-    if transform_type not in {"affine", "rigid"}:
-        raise ValueError("transform_type must be 'affine', 'rigid', or 'none'")
     if reference_plane.fov is None or moving_plane.fov is None:
         raise ValueError("Both planes must provide FOV images for registration.")
+    if transform_type == "fov-translation":
+        return _fov_translation_registered_plane(reference_plane, moving_plane)
 
-    try:
-        reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
-    except ImportError:
-        from bayescatrack.fov_registration import (
-            register_measurement_plane_by_fov_translation,
-        )
-
-        return register_measurement_plane_by_fov_translation(
-            reference_plane,
-            moving_plane,
-        ).registered_measurement_plane
-
+    reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
     registered_fov, reg_params = reg_img_elastix(
         np.asarray(reference_plane.fov),
         np.asarray(moving_plane.fov),
