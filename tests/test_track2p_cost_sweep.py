@@ -7,6 +7,8 @@ from bayescatrack.experiments.track2p_benchmark import Track2pBenchmarkConfig
 from bayescatrack.experiments.track2p_cost_sweep import (
     CostSweepConfig,
     _parse_cost_scales,
+    _parse_nonnegative_values,
+    _parse_positive_values,
     _parse_thresholds,
     format_sweep_table,
     run_track2p_cost_sweep,
@@ -106,24 +108,88 @@ def test_track2p_cost_sweep_reuses_costs_and_varies_solver_knobs(
         None,
         6.0,
     ]
+    assert [call[1]["start_cost"] for call in solver_calls] == [5.0] * 4
+    assert [call[1]["end_cost"] for call in solver_calls] == [5.0] * 4
+    assert [call[1]["gap_penalty"] for call in solver_calls] == [1.0] * 4
     np.testing.assert_allclose(solver_calls[0][0][(0, 1)], [[0.5, 1.0], [5.0, np.inf]])
     np.testing.assert_allclose(solver_calls[3][0][(0, 1)], [[2.0, 4.0], [20.0, np.inf]])
 
     result_dicts = [row.to_dict() for row in rows]
     assert [row["sweep_index"] for row in result_dicts] == [1, 2, 3, 4]
     assert result_dicts[0]["cost_threshold"] == "none"
+    assert result_dicts[0]["start_cost"] == pytest.approx(5.0)
+    assert result_dicts[0]["end_cost"] == pytest.approx(5.0)
+    assert result_dicts[0]["gap_penalty"] == pytest.approx(1.0)
     assert result_dicts[0]["cost_median"] == pytest.approx(1.0)
     assert result_dicts[1]["cost_threshold_admitted_fraction"] == pytest.approx(1.0)
     assert result_dicts[3]["cost_threshold_admitted_fraction"] == pytest.approx(2 / 3)
 
     table = format_sweep_table(result_dicts)
     assert "cost_scale" in table
+    assert "start_cost" in table
     assert "cost_threshold_admitted_fraction" in table
+
+
+def test_track2p_cost_sweep_varies_start_end_and_gap(
+    tmp_path, monkeypatch, write_raw_npy_session
+):
+    subject_dir = tmp_path / "jm001"
+    _write_subject(subject_dir, write_raw_npy_session)
+
+    solver_calls = []
+
+    class SolverResult:
+        tracks = [{0: 0, 1: 0, 2: 0}, {0: 1, 1: 1, 2: 1}]
+        matched_edges = []
+        total_cost = 0.0
+
+    def fake_solver(pairwise_costs, **kwargs):
+        solver_calls.append(kwargs)
+        return SolverResult()
+
+    monkeypatch.setattr(
+        sweep_module,
+        "build_registered_pairwise_costs",
+        lambda sessions, **kwargs: {(0, 1): np.asarray([[1.0]], dtype=float)},
+    )
+    monkeypatch.setattr(
+        sweep_module,
+        "_load_pyrecest_multisession_solver",
+        lambda: fake_solver,
+    )
+
+    rows = run_track2p_cost_sweep(
+        CostSweepConfig(
+            benchmark=Track2pBenchmarkConfig(
+                data=subject_dir,
+                method="global-assignment",
+                cost="registered-iou",
+                allow_track2p_as_reference_for_smoke_test=True,
+                progress=False,
+            ),
+            cost_scales=(1.0,),
+            cost_thresholds=(6.0,),
+            start_costs=(0.5, 2.0),
+            end_costs=(0.5,),
+            gap_penalties=(0.0, 1.0),
+        )
+    )
+
+    assert len(solver_calls) == 4
+    assert [
+        (call["start_cost"], call["end_cost"], call["gap_penalty"])
+        for call in solver_calls
+    ] == [(0.5, 0.5, 0.0), (0.5, 0.5, 1.0), (2.0, 0.5, 0.0), (2.0, 0.5, 1.0)]
+    result_dicts = [row.to_dict() for row in rows]
+    assert [row["sweep_count"] for row in result_dicts] == [4, 4, 4, 4]
+    assert [row["start_cost"] for row in result_dicts] == [0.5, 0.5, 2.0, 2.0]
 
 
 def test_cost_sweep_parser_accepts_none_thresholds():
     assert _parse_cost_scales("0.25,1,4") == (0.25, 1.0, 4.0)
     assert _parse_thresholds("none,2,6") == (None, 2.0, 6.0)
+    assert _parse_positive_values("0.5,2", name="--start-costs") == (0.5, 2.0)
+    assert _parse_nonnegative_values("0,1", name="--gap-penalties") == (0.0, 1.0)
 
 
 @pytest.mark.parametrize("raw", ["0", "-1", "nan", "1,"])
