@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -41,6 +41,8 @@ from bayescatrack.experiments.track2p_benchmark import (
     solve_configured_global_assignment,
 )
 from bayescatrack.reference import Track2pReference
+
+SampleWeightStrategy = Literal["none", "balanced"]
 
 
 @dataclass(frozen=True)
@@ -102,9 +104,17 @@ def run_track2p_loso_calibration(
     *,
     feature_names: Sequence[str] = DEFAULT_ASSOCIATION_FEATURES,
     sample_weight: Any | None = None,
+    sample_weight_strategy: SampleWeightStrategy = "none",
     model_kwargs: Mapping[str, Any] | None = None,
 ) -> LosoCalibrationResult:
-    """Run calibrated global assignment with leave-one-subject-out model fitting."""
+    """Run calibrated global assignment with leave-one-subject-out model fitting.
+
+    Hard-negative candidate limiting already changes the class prior seen by the
+    logistic model. By default LOSO calibration therefore does not add
+    inverse-frequency sample weights, and it disables PyRecEst's implicit
+    ``class_weight='balanced'`` behavior unless the caller explicitly overrides
+    ``model_kwargs['class_weight']``.
+    """
 
     if config.method != "global-assignment" or config.cost != "calibrated":
         raise ValueError(
@@ -125,6 +135,8 @@ def run_track2p_loso_calibration(
         subject_list.append(_load_subject_calibration_data(subject_dir, config=config))
     subjects = tuple(subject_list)
     feature_names = tuple(feature_names)
+    sample_weight_strategy = _validate_sample_weight_strategy(sample_weight_strategy)
+    logistic_model_kwargs = _loso_logistic_model_kwargs(model_kwargs)
     folds: list[LosoCalibrationFold] = []
 
     for held_out_index, held_out in enumerate(subjects):
@@ -138,16 +150,16 @@ def run_track2p_loso_calibration(
             progress=progress,
             held_out_subject=held_out.subject_name,
         )
-        weights = sample_weight
-        if weights is None:
-            weights = balanced_binary_sample_weights(training_labels)
+        weights = _training_sample_weight(
+            training_labels, sample_weight=sample_weight, strategy=sample_weight_strategy
+        )
         progress.step(f"fitting model for {held_out.subject_name}")
         calibrated_model = fit_logistic_association_model(
             training_features,
             training_labels,
             feature_names=feature_names,
             sample_weight=weights,
-            model_kwargs=model_kwargs,
+            model_kwargs=logistic_model_kwargs,
         )
         progress.step(f"scoring calibration for {held_out.subject_name}")
         calibration_scores = _score_holdout_calibration(
@@ -175,6 +187,10 @@ def run_track2p_loso_calibration(
             "training_examples": int(training_labels.shape[0]),
             "positive_examples": positives,
             "negative_examples": int(training_labels.shape[0] - positives),
+            "calibration_sample_weight_strategy": sample_weight_strategy,
+            "calibration_class_weight": _stringify_class_weight(
+                logistic_model_kwargs.get("class_weight")
+            ),
             **calibration_scores,
         }
         folds.append(
@@ -198,6 +214,45 @@ def run_track2p_loso_calibration(
     return LosoCalibrationResult(
         folds=tuple(folds), feature_names=feature_names, max_gap=int(config.max_gap)
     )
+
+
+def _validate_sample_weight_strategy(strategy: str) -> SampleWeightStrategy:
+    if strategy not in {"none", "balanced"}:
+        raise ValueError("sample_weight_strategy must be either 'none' or 'balanced'")
+    return cast(SampleWeightStrategy, strategy)
+
+
+def _loso_logistic_model_kwargs(
+    model_kwargs: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Return logistic kwargs that avoid implicit rebalancing by default."""
+
+    kwargs = dict(model_kwargs or {})
+    kwargs.setdefault("class_weight", None)
+    return kwargs
+
+
+def _training_sample_weight(
+    labels: np.ndarray,
+    *,
+    sample_weight: Any | None,
+    strategy: SampleWeightStrategy,
+) -> Any | None:
+    if sample_weight is not None:
+        if strategy != "none":
+            raise ValueError(
+                "sample_weight_strategy must be 'none' when explicit sample_weight is supplied"
+            )
+        return sample_weight
+    if strategy == "none":
+        return None
+    if strategy == "balanced":
+        return balanced_binary_sample_weights(labels)
+    raise ValueError(f"Unsupported sample_weight_strategy: {strategy!r}")
+
+
+def _stringify_class_weight(class_weight: Any) -> str:
+    return "None" if class_weight is None else str(class_weight)
 
 
 def _score_holdout_calibration(
