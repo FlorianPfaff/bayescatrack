@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 import numpy as np
 from bayescatrack import (
@@ -16,7 +16,13 @@ from bayescatrack import (
 )
 
 
-_VALID_TRANSFORM_TYPES = {"affine", "rigid", "fov-translation", "none"}
+RegistrationTransform = Literal["affine", "rigid", "fov-translation", "none"]
+REGISTRATION_TRANSFORM_TYPES: tuple[RegistrationTransform, ...] = (
+    "affine",
+    "rigid",
+    "fov-translation",
+    "none",
+)
 
 
 def _load_subject_sessions(
@@ -81,12 +87,11 @@ def register_plane_pair(
     reference_plane: CalciumPlaneData,
     moving_plane: CalciumPlaneData,
     *,
-    transform_type: str = "affine",
+    transform_type: RegistrationTransform | str = "affine",
 ) -> CalciumPlaneData:
-    if transform_type not in _VALID_TRANSFORM_TYPES:
-        raise ValueError(
-            "transform_type must be 'affine', 'rigid', 'fov-translation', or 'none'"
-        )
+    if transform_type not in REGISTRATION_TRANSFORM_TYPES:
+        valid_types = ", ".join(repr(value) for value in REGISTRATION_TRANSFORM_TYPES)
+        raise ValueError(f"transform_type must be one of {valid_types}")
     if transform_type == "none":
         if reference_plane.image_shape != moving_plane.image_shape:
             raise ValueError("transform_type='none' requires matching image shapes")
@@ -118,7 +123,9 @@ def register_plane_pair(
 
 
 def register_consecutive_session_measurement_planes(
-    sessions: Sequence[Track2pSession], *, transform_type: str = "affine"
+    sessions: Sequence[Track2pSession],
+    *,
+    transform_type: RegistrationTransform | str = "affine",
 ) -> list[CalciumPlaneData]:
     sessions = list(sessions)
     if len(sessions) < 2:
@@ -139,7 +146,7 @@ def build_registered_subject_association_bundles(  # pylint: disable=too-many-ar
     plane_name: str = "plane0",
     input_format: str = "auto",
     include_behavior: bool = True,
-    transform_type: str = "affine",
+    transform_type: RegistrationTransform | str = "affine",
     order: str = "xy",
     weighted_centroids: bool = False,
     velocity_variance: float = 25.0,
