@@ -287,6 +287,8 @@ def build_track_rows_from_bundles(
     bundles = list(bundles)
     if not bundles:
         raise ValueError("bundles must not be empty")
+    if max_cost is None:
+        max_cost = DEFAULT_ASSIGNMENT_MAX_COST
 
     match_results = solve_consecutive_bundle_linear_assignments(
         bundles,
