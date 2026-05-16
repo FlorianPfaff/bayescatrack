@@ -15,6 +15,25 @@ from bayescatrack import (
     load_track2p_subject,
 )
 
+_TRACK2P_ELASTIX_TRANSFORM_TYPES = frozenset({"affine", "rigid"})
+_FOV_TRANSLATION_TRANSFORM_TYPES = frozenset(
+    {"fov-translation", "fov_translation"}
+)
+REGISTRATION_TRANSFORM_TYPES = ("affine", "rigid", "none", "fov-translation")
+
+
+def _normalize_transform_type(transform_type: str) -> str:
+    normalized = str(transform_type).replace("_", "-")
+    if normalized in _TRACK2P_ELASTIX_TRANSFORM_TYPES or normalized in {
+        "none",
+        "fov-translation",
+    }:
+        return normalized
+    raise ValueError(
+        "transform_type must be one of 'affine', 'rigid', 'none', or "
+        "'fov-translation'"
+    )
+
 
 def _load_subject_sessions(
     subject_dir: str | Path,
@@ -62,18 +81,15 @@ def register_plane_pair(
     *,
     transform_type: str = "affine",
 ) -> CalciumPlaneData:
+    transform_type = _normalize_transform_type(transform_type)
     if transform_type == "none":
         if reference_plane.image_shape != moving_plane.image_shape:
             raise ValueError("transform_type='none' requires matching image shapes")
         return moving_plane
-    if transform_type not in {"affine", "rigid"}:
-        raise ValueError("transform_type must be 'affine', 'rigid', or 'none'")
     if reference_plane.fov is None or moving_plane.fov is None:
         raise ValueError("Both planes must provide FOV images for registration.")
 
-    try:
-        reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
-    except ImportError:
+    if transform_type == "fov-translation":
         from bayescatrack.fov_registration import (
             register_measurement_plane_by_fov_translation,
         )
@@ -82,6 +98,16 @@ def register_plane_pair(
             reference_plane,
             moving_plane,
         ).registered_measurement_plane
+
+    try:
+        reg_img_elastix, itk_reg_all_roi = _load_track2p_registration_backend()
+    except ImportError as exc:
+        raise ImportError(
+            f"transform_type={transform_type!r} requires the Track2p/elastix "
+            "registration backend. Install track2p with its ITK/elastix stack "
+            "or use transform_type='fov-translation' for the phase-correlation "
+            "FOV translation path."
+        ) from exc
 
     registered_fov, reg_params = reg_img_elastix(
         np.asarray(reference_plane.fov),
