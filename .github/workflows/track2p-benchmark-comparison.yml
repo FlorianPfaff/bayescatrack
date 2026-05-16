@@ -4,6 +4,11 @@ on:
   # checkov:skip=CKV_GHA_7: Manual benchmark workflow intentionally exposes bounded dispatch inputs and produces only benchmark artifacts.
   workflow_dispatch:
     inputs:
+      publish_to_paper_repo:
+        description: "Dispatch paper-repo build-results workflow to fetch this raw artifact"
+        required: true
+        type: boolean
+        default: false
       data_path:
         description: "Longitudinal tracking data directory"
         type: string
@@ -270,8 +275,51 @@ jobs:
 
       - name: Upload benchmark results
         if: always() && hashFiles('results/**') != ''
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: track2p-benchmark-comparison-gap${{ inputs.max_gap }}
           path: results/
           if-no-files-found: error
+
+  dispatch-paper-results:
+    name: Dispatch paper repository build
+    needs: benchmark
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_to_paper_repo == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch paper repository build-results workflow
+        env:
+          PAPER_REPO_TOKEN: ${{ secrets.PAPER_REPO_TOKEN }}
+          PAPER_REPO: FlorianPfaff/BayesCaTrackPaper
+          SOURCE_REPO: IPS-Stuttgart/BayesCaTrack
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          ARTIFACT_NAME: track2p-benchmark-comparison-gap${{ inputs.max_gap }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PAPER_REPO_TOKEN:-}" ]; then
+            echo "::warning::publish_to_paper_repo=true but PAPER_REPO_TOKEN is not configured; skipping paper workflow dispatch"
+            exit 0
+          fi
+          payload=$(python - <<'PY'
+          import json
+          import os
+
+          print(json.dumps({
+              "ref": "main",
+              "inputs": {
+                  "source_repo": os.environ["SOURCE_REPO"],
+                  "source_run_id": os.environ["SOURCE_RUN_ID"],
+                  "artifact_name": os.environ["ARTIFACT_NAME"],
+              },
+          }))
+          PY
+          )
+
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: Bearer ${PAPER_REPO_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${PAPER_REPO}/actions/workflows/build-results.yml/dispatches" \
+            -d "$payload"

@@ -371,7 +371,7 @@ jobs:
 
       - name: Upload benchmark results
         if: always() && hashFiles('results/**') != ''
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: track2p-benchmark-include-non-cells-gap${{ inputs.max_gap }}
           path: results/
